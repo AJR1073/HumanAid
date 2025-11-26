@@ -349,6 +349,7 @@ body {
 
 .popup-content {
   padding: 0.5rem;
+  min-width: 200px;
 }
 
 .popup-content h3 {
@@ -363,12 +364,57 @@ body {
   margin-bottom: 0.25rem;
 }
 
-.popup-content a {
-  display: inline-block;
-  margin-top: 0.5rem;
-  color: #EF4444;
+/* Popup Actions Container */
+.popup-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+/* Directions Button */
+.directions-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.625rem 1rem;
+  background: #10B981;
+  color: white;
   text-decoration: none;
   font-weight: 600;
+  font-size: 0.875rem;
+  border-radius: 0.5rem;
+  transition: all 0.2s;
+  box-shadow: 0 2px 4px rgba(16, 185, 129, 0.2);
+}
+
+.directions-btn:hover {
+  background: #059669;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 8px rgba(16, 185, 129, 0.3);
+}
+
+/* Website Button */
+.website-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.625rem 1rem;
+  background: #EF4444;
+  color: white;
+  text-decoration: none;
+  font-weight: 600;
+  font-size: 0.875rem;
+  border-radius: 0.5rem;
+  transition: all 0.2s;
+  box-shadow: 0 2px 4px rgba(239, 68, 68, 0.2);
+}
+
+.website-btn:hover {
+  background: #DC2626;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 8px rgba(239, 68, 68, 0.3);
 }
 
 .map-placeholder {

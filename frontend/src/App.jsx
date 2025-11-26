@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import Map, { Marker, Popup } from 'react-map-gl';
-import { MapPin, Search, Menu, X, Heart, Users, Navigation } from 'lucide-react';
+import { MapPin, Search, Menu, X, Heart, Users, Navigation, MapPinned } from 'lucide-react';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import './App.css';
 
@@ -410,11 +410,28 @@ function App() {
                     {selectedResource.phone && (
                       <p><strong>Phone:</strong> {selectedResource.phone}</p>
                     )}
-                    {selectedResource.website && (
-                      <a href={selectedResource.website} target="_blank" rel="noopener noreferrer">
-                        Visit Website
+                    <div className="popup-actions">
+                      {/* Get Directions Button */}
+                      <a 
+                        href={`https://www.google.com/maps/dir/?api=1&destination=${selectedResource.latitude},${selectedResource.longitude}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="directions-btn"
+                      >
+                        <MapPinned size={16} />
+                        Get Directions
                       </a>
-                    )}
+                      {selectedResource.website && (
+                        <a 
+                          href={selectedResource.website} 
+                          target="_blank" 
+                          rel="noopener noreferrer"
+                          className="website-btn"
+                        >
+                          Visit Website
+                        </a>
+                      )}
+                    </div>
                   </div>
                 </Popup>
               )}
