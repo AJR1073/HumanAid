@@ -22,6 +22,7 @@ function App() {
   const [searchInfo, setSearchInfo] = useState(null);
   const [stats, setStats] = useState(null);
   const [currentLocation, setCurrentLocation] = useState(null); // Track current search location
+  const [showStats, setShowStats] = useState(false); // For mobile stats toggle
   
   // Map state
   const [viewState, setViewState] = useState({
@@ -295,9 +296,20 @@ function App() {
       </header>
 
       <div className="main-content">
+        {/* Stats Toggle Button (Mobile Only) */}
+        {stats && (
+          <button 
+            className="stats-toggle-btn"
+            onClick={() => setShowStats(!showStats)}
+            aria-label="Toggle statistics"
+          >
+            📊 {stats.totalResources.toLocaleString()} Resources
+          </button>
+        )}
+
         {/* Stats Banner */}
         {stats && (
-          <div className="stats-banner">
+          <div className={`stats-banner ${showStats ? 'show' : ''}`}>
             <div className="stat-item">
               <div className="stat-number">{stats.totalResources.toLocaleString()}</div>
               <div className="stat-label">Food Assistance Resources</div>

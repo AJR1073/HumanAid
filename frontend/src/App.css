@@ -625,6 +625,11 @@ body {
   }
 }
 
+/* Stats Toggle Button (Mobile Only) */
+.stats-toggle-btn {
+  display: none;
+}
+
 /* Stats Banner */
 .stats-banner {
   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
@@ -679,12 +684,45 @@ body {
 
 /* Responsive Stats */
 @media (max-width: 768px) {
+  /* Show toggle button on mobile */
+  .stats-toggle-btn {
+    display: block;
+    width: 100%;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    border: none;
+    padding: 0.5rem 1rem;
+    font-size: 0.875rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s;
+    box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);
+    z-index: 60;
+    position: relative;
+  }
+  
+  .stats-toggle-btn:active {
+    transform: scale(0.98);
+  }
+  
+  /* Hide stats banner by default on mobile */
   .stats-banner {
+    max-height: 0;
+    overflow: hidden;
+    opacity: 0;
     flex-direction: row;
     flex-wrap: wrap;
     gap: 0.25rem;
-    padding: 0.375rem 0.5rem;
+    padding: 0;
     justify-content: space-between;
+    transition: all 0.3s ease-in-out;
+  }
+  
+  /* Show stats banner when toggled */
+  .stats-banner.show {
+    max-height: 500px;
+    opacity: 1;
+    padding: 0.375rem 0.5rem;
   }
   
   .stat-item {
