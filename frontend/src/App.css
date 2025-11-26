@@ -548,6 +548,31 @@ body {
   font-weight: 600;
 }
 
+/* Resource Links Container */
+.resource-links {
+  display: flex;
+  gap: 0.75rem;
+  margin-top: 0.5rem;
+  font-size: 0.875rem;
+  flex-wrap: wrap;
+}
+
+.directions-link,
+.website-link {
+  color: #3B82F6;
+  text-decoration: none;
+  font-weight: 600;
+  transition: color 0.2s;
+  white-space: nowrap;
+}
+
+.directions-link:hover,
+.website-link:hover {
+  color: #2563EB;
+  text-decoration: underline;
+}
+
+/* Legacy website class support */
 .website {
   font-size: 0.875rem;
   margin-top: 0.5rem;

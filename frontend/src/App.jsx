@@ -508,13 +508,30 @@ function App() {
                 {resource.phone && (
                   <p className="phone">📞 {resource.phone}</p>
                 )}
-                {resource.website && (
-                  <p className="website">
-                    <a href={resource.website} target="_blank" rel="noopener noreferrer">
-                      🌐 Visit Website
+                <div className="resource-links">
+                  {resource.latitude && resource.longitude && (
+                    <a 
+                      href={`https://www.google.com/maps/dir/?api=1&destination=${resource.latitude},${resource.longitude}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="directions-link"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      🗺️ Directions
                     </a>
-                  </p>
-                )}
+                  )}
+                  {resource.website && (
+                    <a 
+                      href={resource.website} 
+                      target="_blank" 
+                      rel="noopener noreferrer"
+                      className="website-link"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      🌐 Website
+                    </a>
+                  )}
+                </div>
                 {resource.distance !== undefined && (
                   <p className="distance">
                     📍 {resource.distance < 1 
