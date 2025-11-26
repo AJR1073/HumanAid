@@ -2,6 +2,8 @@
 
 > **Making it effortless for anyone, anywhere to find help or give help.**
 
+**🌐 Live Site:** [https://humanaidapp.org](https://humanaidapp.org)
+
 HumanAid is a comprehensive humanitarian assistance platform that connects people in need with local resources while empowering communities to donate, volunteer, and sponsor aid programs.
 
 ## 🌟 Features
@@ -9,10 +11,12 @@ HumanAid is a comprehensive humanitarian assistance platform that connects peopl
 - **7,596+ Verified Resources**: Across 141 cities in Illinois & Missouri
 - **66+ Resource Categories**: Food, shelter, healthcare, legal aid, and more
 - **Interactive Map**: Find resources near you with geospatial search
+- **One-Tap Directions**: Get turn-by-turn navigation to any resource
 - **Distance-Based Search**: Automatically sorted by proximity
 - **Smart Search**: Full-text search with PostgreSQL + PostGIS
 - **AI-Validated Data**: Cleaned and categorized using AI validation
-- **Mobile-Responsive**: Works on all devices
+- **Mobile-Optimized**: Responsive design with collapsible stats
+- **Secure & Fast**: HTTPS via Let's Encrypt, CDN via Cloudflare
 - **Future**: LLM chatbot, volunteer management, sponsorships
 
 ## 🚀 Quick Start
