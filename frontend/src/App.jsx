@@ -42,6 +42,15 @@ function App() {
     fetchResources();
   }, [selectedCategory, currentLocation]);
 
+  // Debug: Log when resources change
+  useEffect(() => {
+    console.log('[HumanAid] Resources state updated:', {
+      total: resources.length,
+      withCoords: resources.filter(r => r.latitude && r.longitude).length,
+      sample: resources.slice(0, 2).map(r => ({ id: r.id, name: r.name, lat: r.latitude, lon: r.longitude }))
+    });
+  }, [resources]);
+
   const fetchStats = async () => {
     try {
       const response = await fetch(`${API_BASE}/resources?mode=${mode}`);
@@ -89,6 +98,12 @@ function App() {
       
       const response = await fetch(url);
       const data = await response.json();
+      
+      console.log('[HumanAid] Fetched resources:', {
+        count: data.resources.length,
+        withCoords: data.resources.filter(r => r.latitude && r.longitude).length,
+        url: url
+      });
       
       // Backend now calculates and sorts by distance, just use the data
       setResources(data.resources);

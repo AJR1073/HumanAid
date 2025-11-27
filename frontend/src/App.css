@@ -336,11 +336,24 @@ body {
 .map-container {
   position: relative;
   background: #e2e8f0;
+  z-index: 1;
+}
+
+/* Ensure map canvas and markers are visible */
+.mapboxgl-canvas-container {
+  z-index: 1 !important;
+}
+
+.mapboxgl-marker {
+  z-index: 100 !important;
 }
 
 .marker {
   cursor: pointer;
   transition: transform 0.2s;
+  z-index: 100 !important;
+  position: relative;
+  pointer-events: auto;
 }
 
 .marker:hover {
@@ -768,7 +781,7 @@ body {
     cursor: pointer;
     transition: all 0.3s;
     box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);
-    z-index: 60;
+    z-index: 10;
     position: relative;
   }
   
