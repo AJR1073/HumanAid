@@ -352,6 +352,64 @@ body {
   pointer-events: auto !important;
 }
 
+/* Custom CSS-only marker (DuckDuckGo compatible) */
+.custom-marker {
+  cursor: pointer;
+  position: relative;
+  width: 30px;
+  height: 40px;
+  pointer-events: auto;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  z-index: 100;
+}
+
+.marker-pin {
+  width: 30px;
+  height: 30px;
+  background: #EF4444;
+  border: 3px solid white;
+  border-radius: 50% 50% 50% 0;
+  transform: rotate(-45deg);
+  position: absolute;
+  left: 0;
+  top: 0;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+}
+
+.marker-pin::before {
+  content: '';
+  width: 10px;
+  height: 10px;
+  background: white;
+  border-radius: 50%;
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%) rotate(45deg);
+}
+
+.marker-shadow {
+  width: 20px;
+  height: 6px;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 50%;
+  position: absolute;
+  bottom: -8px;
+  left: 5px;
+  filter: blur(2px);
+}
+
+.custom-marker:hover {
+  transform: scale(1.15);
+  transition: transform 0.2s;
+}
+
+.custom-marker:active {
+  transform: scale(1.05);
+}
+
+/* Legacy marker class for fallback */
 .marker {
   cursor: pointer;
   transition: transform 0.2s;
