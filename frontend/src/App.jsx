@@ -405,7 +405,9 @@ function App() {
                       setSelectedResource(resource);
                     }}
                   >
-                    <MapPin className="marker" size={30} fill="#EF4444" color="#fff" />
+                    <div className="marker">
+                      <MapPin size={30} fill="#EF4444" color="#fff" />
+                    </div>
                   </Marker>
                 )
               ))}
