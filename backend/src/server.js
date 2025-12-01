@@ -217,6 +217,158 @@ app.get('/api/stats', async (req, res) => {
   }
 });
 
+// Submit a new resource (pending approval)
+app.post('/api/submissions', async (req, res) => {
+  try {
+    const {
+      name,
+      description,
+      address,
+      city,
+      state,
+      zipCode,
+      phone,
+      website,
+      email,
+      hours,
+      categoryId,
+      notes,
+      submittedBy,
+      submittedByName,
+      submittedByUid
+    } = req.body;
+
+    // Validate required fields
+    if (!name || !address || !city || !state || !zipCode || !categoryId) {
+      return res.status(400).json({ 
+        error: 'Missing required fields: name, address, city, state, zipCode, categoryId' 
+      });
+    }
+
+    // Insert into pending_submissions table
+    const result = await pool.query(`
+      INSERT INTO pending_submissions (
+        name, description, address, city, state, zip_code,
+        phone, website, email, hours, category_id, notes,
+        submitted_by, submitted_by_name, submitted_by_uid,
+        status, created_at
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, 'pending', NOW())
+      RETURNING id
+    `, [
+      name, description, address, city, state, zipCode,
+      phone, website, email, hours, categoryId, notes,
+      submittedBy, submittedByName, submittedByUid
+    ]);
+
+    res.status(201).json({
+      success: true,
+      message: 'Resource submitted for review',
+      submissionId: result.rows[0].id
+    });
+  } catch (error) {
+    console.error('Error submitting resource:', error);
+    res.status(500).json({ error: 'Failed to submit resource' });
+  }
+});
+
+// Get pending submissions (admin only)
+app.get('/api/submissions', async (req, res) => {
+  try {
+    const { status = 'pending' } = req.query;
+    
+    const result = await pool.query(`
+      SELECT ps.*, c.name as category_name, c.icon as category_icon
+      FROM pending_submissions ps
+      LEFT JOIN categories c ON ps.category_id = c.id
+      WHERE ps.status = $1
+      ORDER BY ps.created_at DESC
+    `, [status]);
+
+    res.json({
+      submissions: result.rows,
+      total: result.rows.length
+    });
+  } catch (error) {
+    console.error('Error fetching submissions:', error);
+    res.status(500).json({ error: 'Failed to fetch submissions' });
+  }
+});
+
+// Approve or reject a submission (admin only)
+app.patch('/api/submissions/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { action, reviewedBy } = req.body; // action: 'approve' or 'reject'
+
+    if (!['approve', 'reject'].includes(action)) {
+      return res.status(400).json({ error: 'Invalid action. Use "approve" or "reject"' });
+    }
+
+    if (action === 'approve') {
+      // Get the submission
+      const submission = await pool.query(
+        'SELECT * FROM pending_submissions WHERE id = $1',
+        [id]
+      );
+
+      if (submission.rows.length === 0) {
+        return res.status(404).json({ error: 'Submission not found' });
+      }
+
+      const sub = submission.rows[0];
+
+      // Geocode the address (simplified - use actual geocoding in production)
+      // For now, we'll set a placeholder location
+
+      // Insert into resources table
+      const newResource = await pool.query(`
+        INSERT INTO resources (
+          name, description, address, city, state, zip_code,
+          phone, website, email, hours, is_active, created_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, true, NOW())
+        RETURNING id
+      `, [
+        sub.name, sub.description, sub.address, sub.city, sub.state, sub.zip_code,
+        sub.phone, sub.website, sub.email, sub.hours
+      ]);
+
+      // Link to category
+      await pool.query(`
+        INSERT INTO resource_categories (resource_id, category_id)
+        VALUES ($1, $2)
+      `, [newResource.rows[0].id, sub.category_id]);
+
+      // Update submission status
+      await pool.query(`
+        UPDATE pending_submissions 
+        SET status = 'approved', reviewed_at = NOW(), reviewed_by = $1
+        WHERE id = $2
+      `, [reviewedBy, id]);
+
+      res.json({
+        success: true,
+        message: 'Resource approved and published',
+        resourceId: newResource.rows[0].id
+      });
+    } else {
+      // Reject submission
+      await pool.query(`
+        UPDATE pending_submissions 
+        SET status = 'rejected', reviewed_at = NOW(), reviewed_by = $1
+        WHERE id = $2
+      `, [reviewedBy, id]);
+
+      res.json({
+        success: true,
+        message: 'Submission rejected'
+      });
+    }
+  } catch (error) {
+    console.error('Error processing submission:', error);
+    res.status(500).json({ error: 'Failed to process submission' });
+  }
+});
+
 // Start server
 app.listen(port, () => {
   console.log(`🚀 HumanAid API server running on port ${port}`);

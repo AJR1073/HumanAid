@@ -3,6 +3,10 @@ import Map, { Marker, Popup } from 'react-map-gl';
 import { MapPin, Search, Menu, X, Heart, Users, Navigation, MapPinned } from 'lucide-react';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import './App.css';
+import { AuthProvider } from './contexts/AuthContext';
+import AuthModal from './components/AuthModal';
+import UserMenu from './components/UserMenu';
+import SubmitResourceModal from './components/SubmitResourceModal';
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:4000/api';
 const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN;
@@ -23,6 +27,8 @@ function App() {
   const [stats, setStats] = useState(null);
   const [currentLocation, setCurrentLocation] = useState(null); // Track current search location
   const [showStats, setShowStats] = useState(false); // For mobile stats toggle
+  const [showAuthModal, setShowAuthModal] = useState(false); // Authentication modal
+  const [showSubmitModal, setShowSubmitModal] = useState(false); // Resource submission modal
   
   // Map state
   const [viewState, setViewState] = useState({
@@ -263,9 +269,15 @@ function App() {
             </button>
           </div>
 
-          <button className="menu-btn" onClick={() => setMenuOpen(!menuOpen)}>
-            {menuOpen ? <X /> : <Menu />}
-          </button>
+          <div className="header-actions">
+            <UserMenu 
+              onLoginClick={() => setShowAuthModal(true)} 
+              onSubmitClick={() => setShowSubmitModal(true)}
+            />
+            <button className="menu-btn" onClick={() => setMenuOpen(!menuOpen)}>
+              {menuOpen ? <X /> : <Menu />}
+            </button>
+          </div>
         </div>
 
         {/* Search Bar */}
@@ -571,8 +583,30 @@ function App() {
         </div>
         </div>
       </div>
+
+      {/* Authentication Modal */}
+      <AuthModal 
+        isOpen={showAuthModal} 
+        onClose={() => setShowAuthModal(false)} 
+      />
+
+      {/* Resource Submission Modal */}
+      <SubmitResourceModal 
+        isOpen={showSubmitModal} 
+        onClose={() => setShowSubmitModal(false)}
+        categories={categories}
+      />
     </div>
   );
 }
 
-export default App;
+// Wrap App with AuthProvider
+function AppWithAuth() {
+  return (
+    <AuthProvider>
+      <App />
+    </AuthProvider>
+  );
+}
+
+export default AppWithAuth;
