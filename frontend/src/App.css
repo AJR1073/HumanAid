@@ -1089,10 +1089,38 @@ body {
     font-size: 0.875rem !important;
   }
 
-  /* Show category dropdown on mobile */
+  /* Hide search bar on mobile - show category dropdown instead */
+  .search-bar {
+    display: none !important;
+  }
+
+  /* Show category dropdown prominently on mobile */
   .category-dropdown {
-    display: block;
+    display: block !important;
     width: 100%;
+    order: -1; /* Move to top */
+    padding: 1rem 1.25rem;
+    font-size: 1rem;
+    font-weight: 600;
+    background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+    color: white;
+    border: none;
+    border-radius: 12px;
+    box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+    /* White dropdown arrow for blue background */
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 1rem center;
+    background-size: 1.25rem;
+    padding-right: 3rem;
+    -webkit-appearance: none;
+    appearance: none;
+  }
+
+  .category-dropdown option {
+    background: white;
+    color: #334155;
+    padding: 0.75rem;
   }
 }
 
