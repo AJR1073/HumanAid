@@ -219,39 +219,128 @@ app.get('/api/categories', async (req, res) => {
   }
 });
 
-// Search resources
+// Search resources - location-aware
+// If lat/lon provided, searches within radius first, then expands if no results
 app.get('/api/search', async (req, res) => {
   try {
-    const { q, limit = 20 } = req.query;
+    const { q, lat, lon, radius = 50, limit = 20 } = req.query;
     
     if (!q) {
       return res.status(400).json({ error: 'Search query required' });
     }
 
-    const result = await pool.query(`
-      SELECT 
-        r.id, r.name, r.address, r.city, r.state,
-        r.phone, r.website,
-        ST_Y(r.location::geometry) as latitude,
-        ST_X(r.location::geometry) as longitude,
-        ts_rank(
-          to_tsvector('english', r.name || ' ' || COALESCE(r.description, '')),
-          plainto_tsquery('english', $1)
-        ) as rank
-      FROM resources r
-      WHERE r.is_active = true 
-        AND r.approval_status = 'approved'
-        AND (
-          to_tsvector('english', r.name || ' ' || COALESCE(r.description, '')) 
-          @@ plainto_tsquery('english', $1)
-        )
-      ORDER BY rank DESC
-      LIMIT $2
-    `, [q, parseInt(limit)]);
+    let result;
+    let searchMode = 'global';
+
+    // If location provided, try location-based search first
+    if (lat && lon) {
+      // First: Search within radius, sorted by distance
+      const localResult = await pool.query(`
+        SELECT 
+          r.id, r.name, r.address, r.city, r.state, r.zip_code,
+          r.phone, r.website,
+          ST_Y(r.location::geometry) as latitude,
+          ST_X(r.location::geometry) as longitude,
+          array_agg(c.name) as categories,
+          ST_Distance(
+            r.location,
+            ST_SetSRID(ST_MakePoint($2, $3), 4326)::geography
+          ) / 1609.34 as distance,
+          ts_rank(
+            to_tsvector('english', r.name || ' ' || COALESCE(r.description, '')),
+            plainto_tsquery('english', $1)
+          ) as rank
+        FROM resources r
+        LEFT JOIN resource_categories rc ON r.id = rc.resource_id
+        LEFT JOIN categories c ON rc.category_id = c.id
+        WHERE r.is_active = true 
+          AND r.approval_status = 'approved'
+          AND (
+            to_tsvector('english', r.name || ' ' || COALESCE(r.description, '')) 
+            @@ plainto_tsquery('english', $1)
+            OR LOWER(r.name) LIKE LOWER('%' || $1 || '%')
+          )
+          AND ST_DWithin(
+            r.location,
+            ST_SetSRID(ST_MakePoint($2, $3), 4326)::geography,
+            $4 * 1609.34
+          )
+        GROUP BY r.id
+        ORDER BY distance, rank DESC
+        LIMIT $5
+      `, [q, parseFloat(lon), parseFloat(lat), parseFloat(radius), parseInt(limit)]);
+
+      if (localResult.rows.length > 0) {
+        result = localResult;
+        searchMode = 'local';
+      } else {
+        // No local results - find closest match anywhere
+        const closestResult = await pool.query(`
+          SELECT 
+            r.id, r.name, r.address, r.city, r.state, r.zip_code,
+            r.phone, r.website,
+            ST_Y(r.location::geometry) as latitude,
+            ST_X(r.location::geometry) as longitude,
+            array_agg(c.name) as categories,
+            ST_Distance(
+              r.location,
+              ST_SetSRID(ST_MakePoint($2, $3), 4326)::geography
+            ) / 1609.34 as distance,
+            ts_rank(
+              to_tsvector('english', r.name || ' ' || COALESCE(r.description, '')),
+              plainto_tsquery('english', $1)
+            ) as rank
+          FROM resources r
+          LEFT JOIN resource_categories rc ON r.id = rc.resource_id
+          LEFT JOIN categories c ON rc.category_id = c.id
+          WHERE r.is_active = true 
+            AND r.approval_status = 'approved'
+            AND (
+              to_tsvector('english', r.name || ' ' || COALESCE(r.description, '')) 
+              @@ plainto_tsquery('english', $1)
+              OR LOWER(r.name) LIKE LOWER('%' || $1 || '%')
+            )
+          GROUP BY r.id
+          ORDER BY distance
+          LIMIT $4
+        `, [q, parseFloat(lon), parseFloat(lat), parseInt(limit)]);
+        
+        result = closestResult;
+        searchMode = 'closest';
+      }
+    } else {
+      // No location - global search by relevance
+      result = await pool.query(`
+        SELECT 
+          r.id, r.name, r.address, r.city, r.state, r.zip_code,
+          r.phone, r.website,
+          ST_Y(r.location::geometry) as latitude,
+          ST_X(r.location::geometry) as longitude,
+          array_agg(c.name) as categories,
+          ts_rank(
+            to_tsvector('english', r.name || ' ' || COALESCE(r.description, '')),
+            plainto_tsquery('english', $1)
+          ) as rank
+        FROM resources r
+        LEFT JOIN resource_categories rc ON r.id = rc.resource_id
+        LEFT JOIN categories c ON rc.category_id = c.id
+        WHERE r.is_active = true 
+          AND r.approval_status = 'approved'
+          AND (
+            to_tsvector('english', r.name || ' ' || COALESCE(r.description, '')) 
+            @@ plainto_tsquery('english', $1)
+            OR LOWER(r.name) LIKE LOWER('%' || $1 || '%')
+          )
+        GROUP BY r.id
+        ORDER BY rank DESC
+        LIMIT $2
+      `, [q, parseInt(limit)]);
+    }
 
     res.json({
       query: q,
       count: result.rows.length,
+      searchMode: searchMode, // 'local', 'closest', or 'global'
       results: result.rows
     });
   } catch (error) {

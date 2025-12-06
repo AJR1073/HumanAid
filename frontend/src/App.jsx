@@ -126,18 +126,40 @@ function App() {
 
     setLoading(true);
     try {
-      const response = await fetch(`${API_BASE}/search?q=${encodeURIComponent(searchQuery)}`);
+      // Build search URL with location if available
+      let searchUrl = `${API_BASE}/search?q=${encodeURIComponent(searchQuery)}`;
+      
+      // If we have a current location, include it for location-aware search
+      if (currentLocation) {
+        searchUrl += `&lat=${currentLocation.lat}&lon=${currentLocation.lon}&radius=${currentLocation.radius || 50}`;
+      }
+      
+      const response = await fetch(searchUrl);
       const data = await response.json();
       setResources(data.results);
       
-      // Center map on first result
+      // Show search mode info
       if (data.results.length > 0) {
+        if (data.searchMode === 'local') {
+          setSearchInfo(`Found ${data.count} results for "${searchQuery}" nearby`);
+        } else if (data.searchMode === 'closest') {
+          const closest = data.results[0];
+          setSearchInfo(`No "${searchQuery}" nearby. Showing closest: ${closest.city}, ${closest.state} (${closest.distance?.toFixed(1)} miles away)`);
+        } else {
+          setSearchInfo(`Found ${data.count} results for "${searchQuery}"`);
+        }
+        setTimeout(() => setSearchInfo(null), 6000);
+        
+        // Center map on first result
         setViewState({
           ...viewState,
           longitude: data.results[0].longitude,
           latitude: data.results[0].latitude,
-          zoom: 12
+          zoom: data.searchMode === 'local' ? 12 : 10
         });
+      } else {
+        setSearchInfo(`No results found for "${searchQuery}". Try a different search term.`);
+        setTimeout(() => setSearchInfo(null), 5000);
       }
     } catch (error) {
       console.error('Error searching:', error);
