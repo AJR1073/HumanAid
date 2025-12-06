@@ -282,12 +282,29 @@ This changelog serves as the source of truth for project progress. When Cascade 
 ## 🔄 RECENT CHANGES
 
 **Latest Update: 2025-12-06**
-- Fixed production API database connection timeout issue
-- Added connection timeout settings to PostgreSQL pool (10s connect, 30s idle)
-- Added `/api/db-health` diagnostic endpoint for troubleshooting
-- Added Cloud SQL socket connection support for improved reliability
-- Production API restored: https://humanaid-api-154176578711.us-central1.run.app/api
-- Map pins now displaying correctly on production site
+- **Production Database Fix**
+  - Fixed API database connection timeout issue
+  - Added connection timeout settings to PostgreSQL pool (10s connect, 30s idle)
+  - Added `/api/db-health` diagnostic endpoint for troubleshooting
+  - Added Cloud SQL socket connection support for improved reliability
+  - Map pins now displaying correctly on production site
+
+- **Location-Aware Search**
+  - Search now prioritizes results within current location radius
+  - If no local results, automatically finds closest match anywhere
+  - Shows context-aware messaging ("Found X nearby" or "Showing closest: City, ST")
+  - Distance included in search results
+
+- **Mobile Category Dropdown**
+  - Replaced search bar with prominent blue category dropdown on mobile
+  - Users can easily browse categories without typing
+  - Categories include: Food Pantries, Hot Meals, Emergency Shelters, etc.
+  - ZIP code and "Near Me" buttons remain visible
+  - Desktop unchanged (sidebar + search still available)
+
+- **Deployments**
+  - Backend API: https://humanaid-api-154176578711.us-central1.run.app/api
+  - Frontend: https://gocasino-1ecc9.web.app
 
 **Previous Update: 2025-01-25**
 - MVP Phase 1 structure completed
