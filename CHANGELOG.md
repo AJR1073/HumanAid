@@ -281,7 +281,15 @@ This changelog serves as the source of truth for project progress. When Cascade 
 
 ## 🔄 RECENT CHANGES
 
-**Latest Update: 2025-01-25**
+**Latest Update: 2025-12-06**
+- Fixed production API database connection timeout issue
+- Added connection timeout settings to PostgreSQL pool (10s connect, 30s idle)
+- Added `/api/db-health` diagnostic endpoint for troubleshooting
+- Added Cloud SQL socket connection support for improved reliability
+- Production API restored: https://humanaid-api-154176578711.us-central1.run.app/api
+- Map pins now displaying correctly on production site
+
+**Previous Update: 2025-01-25**
 - MVP Phase 1 structure completed
 - Frontend and backend fully configured
 - Database with 66 categories + 13 sample resources

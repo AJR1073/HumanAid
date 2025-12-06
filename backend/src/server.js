@@ -7,12 +7,37 @@ const app = express();
 const port = process.env.PORT || 4000;
 
 // Database connection
-const pool = new Pool({
-  host: process.env.DB_HOST || 'localhost',
-  port: process.env.DB_PORT || 5432,
+// Use Cloud SQL socket if INSTANCE_CONNECTION_NAME is set (production)
+// Otherwise use host/port (local development)
+const dbConfig = process.env.INSTANCE_CONNECTION_NAME 
+  ? {
+      user: process.env.DB_USER || 'postgres',
+      password: process.env.DB_PASSWORD,
+      database: process.env.DB_NAME || 'humanaid',
+      host: `/cloudsql/${process.env.INSTANCE_CONNECTION_NAME}`,
+      connectionTimeoutMillis: 10000,
+      idleTimeoutMillis: 30000
+    }
+  : {
+      host: process.env.DB_HOST || 'localhost',
+      port: process.env.DB_PORT || 5432,
+      database: process.env.DB_NAME || 'humanaid',
+      user: process.env.DB_USER || 'postgres',
+      password: process.env.DB_PASSWORD,
+      connectionTimeoutMillis: 10000,
+      idleTimeoutMillis: 30000
+    };
+
+const pool = new Pool(dbConfig);
+
+// Log DB config on startup (without password)
+console.log('[DB Config]', {
+  mode: process.env.INSTANCE_CONNECTION_NAME ? 'Cloud SQL Socket' : 'TCP/IP',
+  instanceConnectionName: process.env.INSTANCE_CONNECTION_NAME || 'not set',
+  host: dbConfig.host,
   database: process.env.DB_NAME || 'humanaid',
   user: process.env.DB_USER || 'postgres',
-  password: process.env.DB_PASSWORD
+  hasPassword: !!process.env.DB_PASSWORD
 });
 
 // Middleware
@@ -22,6 +47,42 @@ app.use(express.json());
 // Health check
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+// Database health check - diagnose connection issues
+app.get('/api/db-health', async (req, res) => {
+  const startTime = Date.now();
+  try {
+    const result = await pool.query('SELECT 1 as test, NOW() as time');
+    res.json({ 
+      status: 'connected',
+      responseTime: Date.now() - startTime + 'ms',
+      dbTime: result.rows[0].time,
+      config: {
+        host: process.env.DB_HOST || 'localhost',
+        port: process.env.DB_PORT || 5432,
+        database: process.env.DB_NAME || 'humanaid',
+        user: process.env.DB_USER || 'postgres',
+        hasPassword: !!process.env.DB_PASSWORD,
+        passwordLength: process.env.DB_PASSWORD?.length || 0
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ 
+      status: 'error',
+      error: error.message,
+      code: error.code,
+      responseTime: Date.now() - startTime + 'ms',
+      config: {
+        host: process.env.DB_HOST || 'localhost',
+        port: process.env.DB_PORT || 5432,
+        database: process.env.DB_NAME || 'humanaid',
+        user: process.env.DB_USER || 'postgres',
+        hasPassword: !!process.env.DB_PASSWORD,
+        passwordLength: process.env.DB_PASSWORD?.length || 0
+      }
+    });
+  }
 });
 
 // Get resources with filtering
