@@ -341,6 +341,20 @@ function App() {
             <Navigation size={20} />
             {gettingLocation ? 'Getting...' : 'Near Me'}
           </button>
+
+          {/* Mobile Category Dropdown */}
+          <select 
+            className="category-dropdown"
+            value={selectedCategory || ''}
+            onChange={(e) => setSelectedCategory(e.target.value || null)}
+          >
+            <option value="">All Categories</option>
+            {categories.map((cat) => (
+              <option key={cat.id} value={cat.slug}>
+                {cat.icon} {cat.name}
+              </option>
+            ))}
+          </select>
         </div>
       </header>
 
