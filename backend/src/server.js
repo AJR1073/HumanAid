@@ -9,24 +9,24 @@ const port = process.env.PORT || 4000;
 // Database connection
 // Use Cloud SQL socket if INSTANCE_CONNECTION_NAME is set (production)
 // Otherwise use host/port (local development)
-const dbConfig = process.env.INSTANCE_CONNECTION_NAME 
+const dbConfig = process.env.INSTANCE_CONNECTION_NAME
   ? {
-      user: process.env.DB_USER || 'postgres',
-      password: process.env.DB_PASSWORD,
-      database: process.env.DB_NAME || 'humanaid',
-      host: `/cloudsql/${process.env.INSTANCE_CONNECTION_NAME}`,
-      connectionTimeoutMillis: 10000,
-      idleTimeoutMillis: 30000
-    }
+    user: process.env.DB_USER || 'postgres',
+    password: process.env.DB_PASSWORD,
+    database: process.env.DB_NAME || 'humanaid',
+    host: `/cloudsql/${process.env.INSTANCE_CONNECTION_NAME}`,
+    connectionTimeoutMillis: 10000,
+    idleTimeoutMillis: 30000
+  }
   : {
-      host: process.env.DB_HOST || 'localhost',
-      port: process.env.DB_PORT || 5432,
-      database: process.env.DB_NAME || 'humanaid',
-      user: process.env.DB_USER || 'postgres',
-      password: process.env.DB_PASSWORD,
-      connectionTimeoutMillis: 10000,
-      idleTimeoutMillis: 30000
-    };
+    host: process.env.DB_HOST || 'localhost',
+    port: process.env.DB_PORT || 5432,
+    database: process.env.DB_NAME || 'humanaid',
+    user: process.env.DB_USER || 'postgres',
+    password: process.env.DB_PASSWORD,
+    connectionTimeoutMillis: 10000,
+    idleTimeoutMillis: 30000
+  };
 
 const pool = new Pool(dbConfig);
 
@@ -54,7 +54,7 @@ app.get('/api/db-health', async (req, res) => {
   const startTime = Date.now();
   try {
     const result = await pool.query('SELECT 1 as test, NOW() as time');
-    res.json({ 
+    res.json({
       status: 'connected',
       responseTime: Date.now() - startTime + 'ms',
       dbTime: result.rows[0].time,
@@ -68,7 +68,7 @@ app.get('/api/db-health', async (req, res) => {
       }
     });
   } catch (error) {
-    res.status(500).json({ 
+    res.status(500).json({
       status: 'error',
       error: error.message,
       code: error.code,
@@ -88,15 +88,15 @@ app.get('/api/db-health', async (req, res) => {
 // Get resources with filtering
 app.get('/api/resources', async (req, res) => {
   try {
-    const { 
-      city, 
-      state, 
+    const {
+      city,
+      state,
       category,
-      zip, 
-      lat, 
-      lon, 
+      zip,
+      lat,
+      lon,
       radius = 10, // miles
-      limit = 100 
+      limit = 100
     } = req.query;
 
     let query = `
@@ -105,20 +105,30 @@ app.get('/api/resources', async (req, res) => {
         r.phone, r.website, r.description,
         ST_Y(r.location::geometry) as latitude,
         ST_X(r.location::geometry) as longitude,
-        array_agg(c.name) as categories
+        c.name as primary_category,
+        c.slug as primary_category_slug,
+        c.icon as primary_category_icon,
+        COALESCE(
+          json_agg(json_build_object('id', t.id, 'name', t.name, 'slug', t.slug))
+          FILTER (WHERE t.id IS NOT NULL),
+          '[]'
+        ) as tags,
+        r.food_dist_onsite,
+        r.food_dist_type
         ${lat && lon ? `, ST_Distance(
           r.location,
           ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography
         ) / 1609.34 as distance` : ''}
       FROM resources r
-      LEFT JOIN resource_categories rc ON r.id = rc.resource_id
-      LEFT JOIN categories c ON rc.category_id = c.id
+      LEFT JOIN categories c ON r.primary_category_id = c.id
+      LEFT JOIN resource_tags rt ON r.id = rt.resource_id
+      LEFT JOIN tags t ON rt.tag_id = t.id
       WHERE r.is_active = true AND r.approval_status = 'approved'
     `;
 
     const params = [];
-    let paramCount = lat && lon ? 3 : 1;  // Reserve params 1,2 for lon/lat if location search
-    
+    let paramCount = lat && lon ? 3 : 1;
+
     // Add lon/lat to params first if location-based
     if (lat && lon) {
       params.push(parseFloat(lon), parseFloat(lat));
@@ -160,20 +170,20 @@ app.get('/api/resources', async (req, res) => {
     }
 
     // Group by and order
-    query += ` GROUP BY r.id`;
-    
+    query += ` GROUP BY r.id, c.id`;
+
     // Order by distance if location search, otherwise by name
     if (lat && lon) {
       query += `, distance ORDER BY distance`;
     } else {
       query += ` ORDER BY r.name`;
     }
-    
+
     query += ` LIMIT $${paramCount}`;
     params.push(parseInt(limit));
 
     const result = await pool.query(query, params);
-    
+
     // Get total count for stats
     const countQuery = `
       SELECT COUNT(DISTINCT r.id) as total
@@ -184,7 +194,7 @@ app.get('/api/resources', async (req, res) => {
     `;
     const countResult = await pool.query(countQuery);
     const totalCount = parseInt(countResult.rows[0].total);
-    
+
     res.json({
       count: result.rows.length,
       total: totalCount,
@@ -200,17 +210,17 @@ app.get('/api/resources', async (req, res) => {
 app.get('/api/categories', async (req, res) => {
   try {
     const { mode } = req.query;
-    
+
     let query = 'SELECT * FROM categories WHERE parent_id IS NULL';
     const params = [];
-    
+
     if (mode) {
       query += ' AND (mode = $1 OR mode = \'both\')';
       params.push(mode);
     }
-    
+
     query += ' ORDER BY display_order';
-    
+
     const result = await pool.query(query, params);
     res.json({ categories: result.rows });
   } catch (error) {
@@ -224,7 +234,7 @@ app.get('/api/categories', async (req, res) => {
 app.get('/api/search', async (req, res) => {
   try {
     const { q, lat, lon, radius = 50, limit = 20 } = req.query;
-    
+
     if (!q) {
       return res.status(400).json({ error: 'Search query required' });
     }
@@ -241,7 +251,12 @@ app.get('/api/search', async (req, res) => {
           r.phone, r.website,
           ST_Y(r.location::geometry) as latitude,
           ST_X(r.location::geometry) as longitude,
-          array_agg(c.name) as categories,
+          c.name as primary_category,
+          c.slug as primary_category_slug,
+          COALESCE(
+            json_agg(t.name) FILTER (WHERE t.name IS NOT NULL),
+            '[]'
+          ) as tags,
           ST_Distance(
             r.location,
             ST_SetSRID(ST_MakePoint($2, $3), 4326)::geography
@@ -251,8 +266,9 @@ app.get('/api/search', async (req, res) => {
             plainto_tsquery('english', $1)
           ) as rank
         FROM resources r
-        LEFT JOIN resource_categories rc ON r.id = rc.resource_id
-        LEFT JOIN categories c ON rc.category_id = c.id
+        LEFT JOIN categories c ON r.primary_category_id = c.id
+        LEFT JOIN resource_tags rt ON r.id = rt.resource_id
+        LEFT JOIN tags t ON rt.tag_id = t.id
         WHERE r.is_active = true 
           AND r.approval_status = 'approved'
           AND (
@@ -265,7 +281,7 @@ app.get('/api/search', async (req, res) => {
             ST_SetSRID(ST_MakePoint($2, $3), 4326)::geography,
             $4 * 1609.34
           )
-        GROUP BY r.id
+        GROUP BY r.id, c.id
         ORDER BY distance, rank DESC
         LIMIT $5
       `, [q, parseFloat(lon), parseFloat(lat), parseFloat(radius), parseInt(limit)]);
@@ -281,7 +297,12 @@ app.get('/api/search', async (req, res) => {
             r.phone, r.website,
             ST_Y(r.location::geometry) as latitude,
             ST_X(r.location::geometry) as longitude,
-            array_agg(c.name) as categories,
+            c.name as primary_category,
+            c.slug as primary_category_slug,
+            COALESCE(
+              json_agg(t.name) FILTER (WHERE t.name IS NOT NULL),
+              '[]'
+            ) as tags,
             ST_Distance(
               r.location,
               ST_SetSRID(ST_MakePoint($2, $3), 4326)::geography
@@ -291,8 +312,9 @@ app.get('/api/search', async (req, res) => {
               plainto_tsquery('english', $1)
             ) as rank
           FROM resources r
-          LEFT JOIN resource_categories rc ON r.id = rc.resource_id
-          LEFT JOIN categories c ON rc.category_id = c.id
+          LEFT JOIN categories c ON r.primary_category_id = c.id
+          LEFT JOIN resource_tags rt ON r.id = rt.resource_id
+          LEFT JOIN tags t ON rt.tag_id = t.id
           WHERE r.is_active = true 
             AND r.approval_status = 'approved'
             AND (
@@ -300,11 +322,11 @@ app.get('/api/search', async (req, res) => {
               @@ plainto_tsquery('english', $1)
               OR LOWER(r.name) LIKE LOWER('%' || $1 || '%')
             )
-          GROUP BY r.id
+          GROUP BY r.id, c.id
           ORDER BY distance
           LIMIT $4
         `, [q, parseFloat(lon), parseFloat(lat), parseInt(limit)]);
-        
+
         result = closestResult;
         searchMode = 'closest';
       }
@@ -316,14 +338,20 @@ app.get('/api/search', async (req, res) => {
           r.phone, r.website,
           ST_Y(r.location::geometry) as latitude,
           ST_X(r.location::geometry) as longitude,
-          array_agg(c.name) as categories,
+          c.name as primary_category,
+          c.slug as primary_category_slug,
+          COALESCE(
+            json_agg(t.name) FILTER (WHERE t.name IS NOT NULL),
+            '[]'
+          ) as tags,
           ts_rank(
             to_tsvector('english', r.name || ' ' || COALESCE(r.description, '')),
             plainto_tsquery('english', $1)
           ) as rank
         FROM resources r
-        LEFT JOIN resource_categories rc ON r.id = rc.resource_id
-        LEFT JOIN categories c ON rc.category_id = c.id
+        LEFT JOIN categories c ON r.primary_category_id = c.id
+        LEFT JOIN resource_tags rt ON r.id = rt.resource_id
+        LEFT JOIN tags t ON rt.tag_id = t.id
         WHERE r.is_active = true 
           AND r.approval_status = 'approved'
           AND (
@@ -331,7 +359,7 @@ app.get('/api/search', async (req, res) => {
             @@ plainto_tsquery('english', $1)
             OR LOWER(r.name) LIKE LOWER('%' || $1 || '%')
           )
-        GROUP BY r.id
+        GROUP BY r.id, c.id
         ORDER BY rank DESC
         LIMIT $2
       `, [q, parseInt(limit)]);
@@ -355,7 +383,7 @@ app.get('/api/stats', async (req, res) => {
     const resourceCount = await pool.query('SELECT COUNT(*) FROM resources WHERE is_active = true');
     const categoryCount = await pool.query('SELECT COUNT(*) FROM categories');
     const cityCount = await pool.query('SELECT COUNT(DISTINCT city) FROM resources WHERE is_active = true');
-    
+
     res.json({
       resources: parseInt(resourceCount.rows[0].count),
       categories: parseInt(categoryCount.rows[0].count),
@@ -381,7 +409,10 @@ app.post('/api/submissions', async (req, res) => {
       website,
       email,
       hours,
-      categoryId,
+      primaryCategoryId,
+      tags,
+      foodDistOnsite,
+      foodDistType,
       notes,
       submittedBy,
       submittedByName,
@@ -389,9 +420,9 @@ app.post('/api/submissions', async (req, res) => {
     } = req.body;
 
     // Validate required fields
-    if (!name || !address || !city || !state || !zipCode || !categoryId) {
-      return res.status(400).json({ 
-        error: 'Missing required fields: name, address, city, state, zipCode, categoryId' 
+    if (!name || !address || !city || !state || !zipCode || !primaryCategoryId) {
+      return res.status(400).json({
+        error: 'Missing required fields: name, address, city, state, zipCode, primaryCategoryId'
       });
     }
 
@@ -399,15 +430,17 @@ app.post('/api/submissions', async (req, res) => {
     const result = await pool.query(`
       INSERT INTO pending_submissions (
         name, description, address, city, state, zip_code,
-        phone, website, email, hours, category_id, notes,
-        submitted_by, submitted_by_name, submitted_by_uid,
+        phone, website, email, hours, primary_category_id, tags,
+        food_dist_onsite, food_dist_type,
+        notes, submitted_by, submitted_by_name, submitted_by_uid,
         status, created_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, 'pending', NOW())
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, 'pending', NOW())
       RETURNING id
     `, [
       name, description, address, city, state, zipCode,
-      phone, website, email, hours, categoryId, notes,
-      submittedBy, submittedByName, submittedByUid
+      phone, website, email, hours, primaryCategoryId, JSON.stringify(tags || []),
+      foodDistOnsite, foodDistType,
+      notes, submittedBy, submittedByName, submittedByUid
     ]);
 
     res.status(201).json({
@@ -425,11 +458,11 @@ app.post('/api/submissions', async (req, res) => {
 app.get('/api/submissions', async (req, res) => {
   try {
     const { status = 'pending' } = req.query;
-    
+
     const result = await pool.query(`
       SELECT ps.*, c.name as category_name, c.icon as category_icon
       FROM pending_submissions ps
-      LEFT JOIN categories c ON ps.category_id = c.id
+      LEFT JOIN categories c ON ps.primary_category_id = c.id
       WHERE ps.status = $1
       ORDER BY ps.created_at DESC
     `, [status]);
@@ -474,19 +507,45 @@ app.patch('/api/submissions/:id', async (req, res) => {
       const newResource = await pool.query(`
         INSERT INTO resources (
           name, description, address, city, state, zip_code,
-          phone, website, email, hours, is_active, created_at
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, true, NOW())
+          phone, website, email, hours, primary_category_id,
+          food_dist_onsite, food_dist_type,
+          is_active, created_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, true, NOW())
         RETURNING id
       `, [
         sub.name, sub.description, sub.address, sub.city, sub.state, sub.zip_code,
-        sub.phone, sub.website, sub.email, sub.hours
+        sub.phone, sub.website, sub.email, sub.hours, sub.primary_category_id,
+        sub.food_dist_onsite, sub.food_dist_type
       ]);
 
-      // Link to category
-      await pool.query(`
-        INSERT INTO resource_categories (resource_id, category_id)
-        VALUES ($1, $2)
-      `, [newResource.rows[0].id, sub.category_id]);
+      // Handle Tags (create if needed, link)
+      const tags = sub.tags || []; // assumed to be array of names or IDs. let's assume names for now.
+      if (typeof tags === 'string') {
+        // If stored as JSON string, parse it? DB returns JSONB object/array if column is JSONB.
+        // pg driver parses JSONB automatically.
+      }
+
+      if (Array.isArray(tags)) {
+        for (const tagName of tags) {
+          if (!tagName) continue;
+          // Simple slug generation
+          const tagSlug = tagName.toLowerCase().replace(/ /g, '-');
+
+          // Upsert tag
+          const tagRes = await pool.query(`
+              INSERT INTO tags (name, slug) VALUES ($1, $2)
+              ON CONFLICT (slug) DO UPDATE SET name = $1
+              RETURNING id
+            `, [tagName, tagSlug]);
+
+          // Link
+          await pool.query(`
+              INSERT INTO resource_tags (resource_id, tag_id)
+              VALUES ($1, $2)
+              ON CONFLICT DO NOTHING
+            `, [newResource.rows[0].id, tagRes.rows[0].id]);
+        }
+      }
 
       // Update submission status
       await pool.query(`
@@ -516,6 +575,137 @@ app.patch('/api/submissions/:id', async (req, res) => {
   } catch (error) {
     console.error('Error processing submission:', error);
     res.status(500).json({ error: 'Failed to process submission' });
+  }
+});
+
+// Favorites API
+app.get('/api/favorites', async (req, res) => {
+  try {
+    const { uid } = req.query; // Firebase UID
+    if (!uid) return res.status(400).json({ error: 'User ID required' });
+
+    // Get user ID from firebase_uid
+    const userRes = await pool.query('SELECT id FROM users WHERE firebase_uid = $1', [uid]);
+    if (userRes.rows.length === 0) return res.json({ favorites: [] });
+    const userId = userRes.rows[0].id;
+
+    const result = await pool.query(`
+      SELECT resource_id 
+      FROM user_favorites 
+      WHERE user_id = $1
+    `, [userId]);
+
+    res.json({ favorites: result.rows.map(r => r.resource_id) });
+  } catch (error) {
+    console.error('Error fetching favorites:', error);
+    res.status(500).json({ error: 'Failed to fetch favorites' });
+  }
+});
+
+app.post('/api/favorites', async (req, res) => {
+  try {
+    const { uid, resourceId } = req.body;
+    if (!uid || !resourceId) return res.status(400).json({ error: 'Missing required fields' });
+
+    // Get or Create User
+    let userRes = await pool.query('SELECT id FROM users WHERE firebase_uid = $1', [uid]);
+    let userId;
+
+    if (userRes.rows.length === 0) {
+      // Create user on the fly if not exists (syncs with firebase auth)
+      // Note: We don't have email/name here, so we might need to pass it or just create basic record
+      // Ideally client passes full user obj or we rely on Auth header. 
+      // For now, let's assume user exists or create minimal.
+      // Better: Client should ensure user exists via /api/users/sync first. 
+      // Let's create minimal if missing.
+      const newUser = await pool.query(
+        'INSERT INTO users (firebase_uid, email) VALUES ($1, $2) RETURNING id',
+        [uid, `${uid}@placeholder.com`] // Fallback
+      );
+      userId = newUser.rows[0].id;
+    } else {
+      userId = userRes.rows[0].id;
+    }
+
+    // Toggle Favorite
+    const check = await pool.query(
+      'SELECT * FROM user_favorites WHERE user_id = $1 AND resource_id = $2',
+      [userId, resourceId]
+    );
+
+    if (check.rows.length > 0) {
+      // Remove
+      await pool.query(
+        'DELETE FROM user_favorites WHERE user_id = $1 AND resource_id = $2',
+        [userId, resourceId]
+      );
+      res.json({ status: 'removed' });
+    } else {
+      // Add
+      await pool.query(
+        'INSERT INTO user_favorites (user_id, resource_id) VALUES ($1, $2)',
+        [userId, resourceId]
+      );
+      res.json({ status: 'added' });
+    }
+  } catch (error) {
+    console.error('Error toggling favorite:', error);
+    res.status(500).json({ error: 'Failed to toggle favorite' });
+  }
+});
+
+// Update or Create User (Sync)
+app.post('/api/users/sync', async (req, res) => {
+  try {
+    const { uid, email, displayName, photoURL } = req.body;
+
+    // Hardcoded Admin Promotion for fallback
+    const shouldBeAdmin = email === 'aaronreifschneider@outlook.com';
+
+    const result = await pool.query(`
+      INSERT INTO users (firebase_uid, email, display_name, photo_url, last_login, is_admin)
+      VALUES ($1, $2, $3, $4, NOW(), $5)
+      ON CONFLICT (firebase_uid) 
+      DO UPDATE SET 
+        last_login = NOW(),
+        email = EXCLUDED.email,
+        display_name = COALESCE(EXCLUDED.display_name, users.display_name),
+        photo_url = COALESCE(EXCLUDED.photo_url, users.photo_url),
+        is_admin = users.is_admin OR EXCLUDED.is_admin
+      RETURNING is_admin
+    `, [uid, email, displayName, photoURL, shouldBeAdmin]);
+
+    res.json({ success: true, isAdmin: result.rows[0].is_admin });
+  } catch (error) {
+    console.error('Error syncing user:', error);
+    res.status(500).json({ error: 'Failed to sync user' });
+  }
+});
+
+// Admin API
+app.get('/api/submissions/pending', async (req, res) => {
+  // Note: In production, verify Admin status via ID token or DB lookup middleware
+  try {
+    const result = await pool.query(`
+      SELECT * FROM pending_submissions 
+      WHERE status = 'pending' 
+      ORDER BY created_at DESC
+    `);
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Error fetching submissions:', error);
+    res.status(500).json({ error: 'Failed to fetch submissions' });
+  }
+});
+
+app.post('/api/admin/promote', async (req, res) => {
+  try {
+    const { email } = req.body;
+    await pool.query('UPDATE users SET is_admin = TRUE WHERE email = $1', [email]);
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error promoting user:', error);
+    res.status(500).json({ error: 'Failed to promote user' });
   }
 });
 

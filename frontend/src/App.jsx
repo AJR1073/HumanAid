@@ -3,12 +3,14 @@ import Map, { Marker, Popup } from 'react-map-gl';
 import { MapPin, Search, Menu, X, Heart, Users, Navigation, MapPinned } from 'lucide-react';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import './App.css';
-import { AuthProvider } from './contexts/AuthContext';
+import { AuthProvider, useAuth } from './contexts/AuthContext';
 import AuthModal from './components/AuthModal';
 import UserMenu from './components/UserMenu';
 import SubmitResourceModal from './components/SubmitResourceModal';
+import RegistrationPromo from './components/RegistrationPromo';
+import AdminDashboard from './components/AdminDashboard';
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:4000/api';
+const API_BASE = import.meta.env.VITE_API_URL || '/api';
 const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN;
 
 function App() {
@@ -29,7 +31,7 @@ function App() {
   const [showStats, setShowStats] = useState(false); // For mobile stats toggle
   const [showAuthModal, setShowAuthModal] = useState(false); // Authentication modal
   const [showSubmitModal, setShowSubmitModal] = useState(false); // Resource submission modal
-  
+
   // Map state
   const [viewState, setViewState] = useState({
     longitude: -89.6501, // Illinois center
@@ -65,10 +67,7 @@ function App() {
       const totalResources = data.total || data.count || data.resources.length;
       // Count unique cities from returned resources (sample)
       const uniqueCities = new Set(data.resources.map(r => `${r.city}, ${r.state}`)).size;
-      setStats({
-        totalResources: totalResources,
-        citiesCovered: uniqueCities
-      });
+      // Stats removed per user request
     } catch (error) {
       console.error('Error fetching stats:', error);
     }
@@ -88,7 +87,7 @@ function App() {
     setLoading(true);
     try {
       let url;
-      
+
       // If we have a current location (from ZIP or "Near Me"), use that
       if (currentLocation) {
         url = `${API_BASE}/resources?lat=${currentLocation.lat}&lon=${currentLocation.lon}&radius=${currentLocation.radius || 25}`;
@@ -96,21 +95,21 @@ function App() {
         // Default: show all resources
         url = `${API_BASE}/resources?limit=100`;
       }
-      
+
       // Add category filter if selected
       if (selectedCategory) {
         url += `&category=${selectedCategory}`;
       }
-      
+
       const response = await fetch(url);
       const data = await response.json();
-      
+
       console.log('[HumanAid] Fetched resources:', {
         count: data.resources.length,
         withCoords: data.resources.filter(r => r.latitude && r.longitude).length,
         url: url
       });
-      
+
       // Backend now calculates and sorts by distance, just use the data
       setResources(data.resources);
     } catch (error) {
@@ -128,16 +127,16 @@ function App() {
     try {
       // Build search URL with location if available
       let searchUrl = `${API_BASE}/search?q=${encodeURIComponent(searchQuery)}`;
-      
+
       // If we have a current location, include it for location-aware search
       if (currentLocation) {
         searchUrl += `&lat=${currentLocation.lat}&lon=${currentLocation.lon}&radius=${currentLocation.radius || 50}`;
       }
-      
+
       const response = await fetch(searchUrl);
       const data = await response.json();
       setResources(data.results);
-      
+
       // Show search mode info
       if (data.results.length > 0) {
         if (data.searchMode === 'local') {
@@ -149,7 +148,7 @@ function App() {
           setSearchInfo(`Found ${data.count} results for "${searchQuery}"`);
         }
         setTimeout(() => setSearchInfo(null), 6000);
-        
+
         // Center map on first result
         setViewState({
           ...viewState,
@@ -178,7 +177,7 @@ function App() {
     navigator.geolocation.getCurrentPosition(
       async (position) => {
         const { latitude, longitude } = position.coords;
-        
+
         // Update map view
         setViewState({
           ...viewState,
@@ -218,11 +217,11 @@ function App() {
         `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(zipCode)}.json?country=US&types=postcode&access_token=${MAPBOX_TOKEN}`
       );
       const geocodeData = await geocodeResponse.json();
-      
+
       if (geocodeData.features && geocodeData.features.length > 0) {
         const [longitude, latitude] = geocodeData.features[0].center;
         const placeName = geocodeData.features[0].place_name;
-        
+
         // Center map on zip code location
         setViewState({
           ...viewState,
@@ -230,10 +229,10 @@ function App() {
           latitude,
           zoom: 11
         });
-        
+
         // Set current location (this will trigger fetchResources via useEffect)
         setCurrentLocation({ lat: latitude, lon: longitude, radius: 50, placeName });
-        
+
         // Show info message after resources load
         setTimeout(() => {
           setSearchInfo(`Searching within 50 miles of ${placeName}`);
@@ -249,19 +248,52 @@ function App() {
       setLoading(false);
     }
   };
-  
+
   // Helper function to calculate distance between two points
   const calculateDistance = (lat1, lon1, lat2, lon2) => {
     const R = 3959; // Earth's radius in miles
     const dLat = (lat2 - lat1) * Math.PI / 180;
     const dLon = (lon2 - lon1) * Math.PI / 180;
-    const a = 
-      Math.sin(dLat/2) * Math.sin(dLat/2) +
+    const a =
+      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
       Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-      Math.sin(dLon/2) * Math.sin(dLon/2);
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+      Math.sin(dLon / 2) * Math.sin(dLon / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
     return R * c;
   };
+
+  // Favorites Logic
+  // Favorites Logic
+  const { user, favorites, toggleFavorite, isAdmin } = useAuth();
+
+  const handleFavoriteClick = async (e, resource) => {
+    e.stopPropagation();
+    if (!user) {
+      setShowAuthModal(true);
+      return;
+    }
+    await toggleFavorite(resource.id);
+  };
+
+  // Simple Routing for Admin
+  if (mode === 'admin') {
+    return (
+      <div className="app-container">
+        <header className="header">
+          <div className="header-content">
+            <div className="logo" onClick={() => setMode('need_help')}>
+              <Heart className="logo-icon" />
+              <h1>HumanAid</h1>
+            </div>
+            <button className="mode-btn" onClick={() => setMode('need_help')}>
+              Back to Map
+            </button>
+          </div>
+        </header>
+        <AdminDashboard />
+      </div>
+    );
+  }
 
   return (
     <div className="app-container">
@@ -272,7 +304,7 @@ function App() {
             <Heart className="logo-icon" />
             <h1>HumanAid</h1>
           </div>
-          
+
           {/* Mode Toggle */}
           <div className="mode-toggle">
             <button
@@ -292,9 +324,10 @@ function App() {
           </div>
 
           <div className="header-actions">
-            <UserMenu 
-              onLoginClick={() => setShowAuthModal(true)} 
+            <UserMenu
+              onLoginClick={() => setShowAuthModal(true)}
               onSubmitClick={() => setShowSubmitModal(true)}
+              onAdminClick={() => setMode('admin')}
             />
             <button className="menu-btn" onClick={() => setMenuOpen(!menuOpen)}>
               {menuOpen ? <X /> : <Menu />}
@@ -309,8 +342,8 @@ function App() {
             <input
               type="text"
               className="search-input"
-              placeholder={mode === 'need_help' ? 
-                'Search for food, shelter, healthcare...' : 
+              placeholder={mode === 'need_help' ?
+                'Search for food, shelter, healthcare...' :
                 'Search volunteer opportunities...'
               }
               value={searchQuery}
@@ -318,7 +351,7 @@ function App() {
             />
             <button type="submit">Search</button>
           </form>
-          
+
           <form onSubmit={searchByZipCode} className="zip-form">
             <input
               type="text"
@@ -331,8 +364,8 @@ function App() {
             <button type="submit" className="zip-btn">Go</button>
           </form>
 
-          <button 
-            type="button" 
+          <button
+            type="button"
             className="location-btn"
             onClick={useMyLocation}
             disabled={gettingLocation}
@@ -343,7 +376,7 @@ function App() {
           </button>
 
           {/* Mobile Category Dropdown */}
-          <select 
+          <select
             className="category-dropdown"
             value={selectedCategory || ''}
             onChange={(e) => setSelectedCategory(e.target.value || null)}
@@ -359,41 +392,7 @@ function App() {
       </header>
 
       <div className="main-content">
-        {/* Stats Toggle Button (Mobile Only) */}
-        {stats && (
-          <button 
-            className="stats-toggle-btn"
-            onClick={() => setShowStats(!showStats)}
-            aria-label="Toggle statistics"
-          >
-            📊 {stats.totalResources.toLocaleString()} Resources
-          </button>
-        )}
-
-        {/* Stats Banner */}
-        {stats && (
-          <div className={`stats-banner ${showStats ? 'show' : ''}`}>
-            <div className="stat-item">
-              <div className="stat-number">{stats.totalResources.toLocaleString()}</div>
-              <div className="stat-label">Food Assistance Resources</div>
-            </div>
-            <div className="stat-divider"></div>
-            <div className="stat-item">
-              <div className="stat-number">95+</div>
-              <div className="stat-label">Cities Covered</div>
-            </div>
-            <div className="stat-divider"></div>
-            <div className="stat-item">
-              <div className="stat-number">IL & MO</div>
-              <div className="stat-label">Across Both States</div>
-            </div>
-            <div className="stat-divider"></div>
-            <div className="stat-item">
-              <div className="stat-number">✓</div>
-              <div className="stat-label">Food Banks, Pantries, Soup Kitchens</div>
-            </div>
-          </div>
-        )}
+        {/* Stats Banner Removed */}
 
         {/* Search Info Banner */}
         {searchInfo && (
@@ -402,7 +401,7 @@ function App() {
             <button onClick={() => setSearchInfo(null)}>×</button>
           </div>
         )}
-        
+
         {/* Content Grid - Sidebar, Map, Resource List */}
         <div className="content-grid">
           {/* Sidebar */}
@@ -425,213 +424,245 @@ function App() {
                 </button>
               ))}
             </div>
+            <RegistrationPromo onSignInClick={() => setShowAuthModal(true)} />
           </aside>
 
           {/* Map */}
           <div className="map-container">
-          {MAPBOX_TOKEN && !mapError ? (
-            <Map
-              {...viewState}
-              onMove={evt => setViewState(evt.viewState)}
-              mapStyle="mapbox://styles/mapbox/streets-v12"
-              mapboxAccessToken={MAPBOX_TOKEN}
-              style={{ width: '100%', height: '100%' }}
-              onError={(e) => {
-                console.error('Map error:', e);
-                setMapError(e.error?.message || 'Map failed to load');
-              }}
-              reuseMaps
-            >
-              {resources.map((resource) => (
-                resource.latitude && resource.longitude && (
-                  <Marker
-                    key={resource.id}
-                    longitude={resource.longitude}
-                    latitude={resource.latitude}
-                    onClick={(e) => {
-                      e.originalEvent.stopPropagation();
-                      setSelectedResource(resource);
-                    }}
+            {MAPBOX_TOKEN && !mapError ? (
+              <Map
+                {...viewState}
+                onMove={evt => setViewState(evt.viewState)}
+                mapStyle="mapbox://styles/mapbox/streets-v12"
+                mapboxAccessToken={MAPBOX_TOKEN}
+                style={{ width: '100%', height: '100%' }}
+                onError={(e) => {
+                  console.error('Map error:', e);
+                  setMapError(e.error?.message || 'Map failed to load');
+                }}
+                reuseMaps
+              >
+                {resources.map((resource) => (
+                  resource.latitude && resource.longitude && (
+                    <Marker
+                      key={resource.id}
+                      longitude={resource.longitude}
+                      latitude={resource.latitude}
+                      onClick={(e) => {
+                        e.originalEvent.stopPropagation();
+                        setSelectedResource(resource);
+                      }}
+                    >
+                      <div className="custom-marker">
+                        <div className="marker-pin"></div>
+                        <div className="marker-shadow"></div>
+                      </div>
+                    </Marker>
+                  )
+                ))}
+
+                {selectedResource && (
+                  <Popup
+                    longitude={selectedResource.longitude}
+                    latitude={selectedResource.latitude}
+                    onClose={() => setSelectedResource(null)}
+                    closeButton={true}
+                    closeOnClick={false}
                   >
-                    <div className="custom-marker">
-                      <div className="marker-pin"></div>
-                      <div className="marker-shadow"></div>
-                    </div>
-                  </Marker>
-                )
-              ))}
-
-              {selectedResource && (
-                <Popup
-                  longitude={selectedResource.longitude}
-                  latitude={selectedResource.latitude}
-                  onClose={() => setSelectedResource(null)}
-                  closeButton={true}
-                  closeOnClick={false}
-                >
-                  <div className="popup-content">
-                    <h3>{selectedResource.name}</h3>
-                    <p>{selectedResource.address}</p>
-                    <p>{selectedResource.city}, {selectedResource.state} {selectedResource.zip_code}</p>
-                    {selectedResource.phone && (
-                      <p><strong>Phone:</strong> {selectedResource.phone}</p>
-                    )}
-                    <div className="popup-actions">
-                      {/* Get Directions Button */}
-                      <a 
-                        href={`https://www.google.com/maps/dir/?api=1&destination=${selectedResource.latitude},${selectedResource.longitude}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="directions-btn"
-                      >
-                        <MapPinned size={16} />
-                        Get Directions
-                      </a>
-                      {selectedResource.website && (
-                        <a 
-                          href={selectedResource.website} 
-                          target="_blank" 
-                          rel="noopener noreferrer"
-                          className="website-btn"
-                        >
-                          Visit Website
-                        </a>
+                    <div className="popup-content">
+                      <h3>{selectedResource.name}</h3>
+                      <p>{selectedResource.address}</p>
+                      <p>{selectedResource.city}, {selectedResource.state} {selectedResource.zip_code}</p>
+                      {selectedResource.phone && (
+                        <p><strong>Phone:</strong> {selectedResource.phone}</p>
                       )}
+                      <button
+                        className={`favorite-btn-popup ${favorites.includes(selectedResource.id) ? 'active' : ''}`}
+                        onClick={(e) => handleFavoriteClick(e, selectedResource)}
+                      >
+                        <Heart size={16} fill={favorites.includes(selectedResource.id) ? "currentColor" : "none"} />
+                        {favorites.includes(selectedResource.id) ? 'Saved' : 'Save'}
+                      </button>
+                      <div className="popup-actions">
+                        {/* Get Directions Button */}
+                        <a
+                          href={`https://www.google.com/maps/dir/?api=1&destination=${selectedResource.latitude},${selectedResource.longitude}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="directions-btn"
+                        >
+                          <MapPinned size={16} />
+                          Get Directions
+                        </a>
+                        {selectedResource.website && (
+                          <a
+                            href={selectedResource.website}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="website-btn"
+                          >
+                            Visit Website
+                          </a>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                </Popup>
-              )}
-            </Map>
-          ) : (
-            <div className="map-placeholder">
-              {mapError ? (
-                <>
-                  <p>⚠️ Map Error</p>
-                  <p>{mapError}</p>
-                  <p style={{ fontSize: '0.875rem', marginTop: '1rem' }}>
-                    Try refreshing the page or check browser WebGL support
-                  </p>
-                </>
-              ) : !MAPBOX_TOKEN ? (
-                <>
-                  <p>Map requires Mapbox token</p>
-                  <p>Set VITE_MAPBOX_TOKEN in .env file</p>
-                </>
-              ) : null}
-            </div>
-          )}
+                  </Popup>
+                )}
+              </Map>
+            ) : (
+              <div className="map-placeholder">
+                {mapError ? (
+                  <>
+                    <p>⚠️ Map Error</p>
+                    <p>{mapError}</p>
+                    <p style={{ fontSize: '0.875rem', marginTop: '1rem' }}>
+                      Try refreshing the page or check browser WebGL support
+                    </p>
+                  </>
+                ) : !MAPBOX_TOKEN ? (
+                  <>
+                    <p>Map requires Mapbox token</p>
+                    <p>Set VITE_MAPBOX_TOKEN in .env file</p>
+                  </>
+                ) : null}
+              </div>
+            )}
 
-          {loading && (
-            <div className="loading-overlay">
-              <div className="spinner"></div>
-              <p>Loading resources...</p>
-            </div>
-          )}
-        </div>
-
-        {/* Resource List */}
-        <div className="resource-list">
-          <div className="resource-list-header">
-            <h2>
-              {selectedCategory 
-                ? `${categories.find(c => c.slug === selectedCategory)?.name || 'Resources'}`
-                : 'All Resources'
-              }
-              {currentLocation && currentLocation.placeName && (
-                <span className="location-context"> near {currentLocation.placeName.split(',')[0]}</span>
-              )}
-              <span className="count">({resources.length})</span>
-            </h2>
-            {currentLocation && (
-              <button className="clear-location-btn" onClick={() => setCurrentLocation(null)}>
-                Clear Location
-              </button>
+            {loading && (
+              <div className="loading-overlay">
+                <div className="spinner"></div>
+                <p>Loading resources...</p>
+              </div>
             )}
           </div>
-          
-          <div className="resources">
-            {resources.map((resource) => (
-              <div
-                key={resource.id}
-                className="resource-card"
-                onClick={() => {
-                  setSelectedResource(resource);
-                  if (resource.latitude && resource.longitude) {
-                    setViewState({
-                      ...viewState,
-                      longitude: resource.longitude,
-                      latitude: resource.latitude,
-                      zoom: 14
-                    });
-                  }
-                }}
-              >
-                <h3>{resource.name}</h3>
-                <p className="address">
-                  {resource.address}<br />
-                  {resource.city}, {resource.state} {resource.zip_code}
-                </p>
-                {resource.phone && (
-                  <p className="phone">📞 {resource.phone}</p>
+
+          {/* Resource List */}
+          <div className="resource-list">
+            <div className="resource-list-header">
+              <h2>
+                {selectedCategory
+                  ? `${categories.find(c => c.slug === selectedCategory)?.name || 'Resources'}`
+                  : 'All Resources'
+                }
+                {currentLocation && currentLocation.placeName && (
+                  <span className="location-context"> near {currentLocation.placeName.split(',')[0]}</span>
                 )}
-                <div className="resource-links">
-                  {resource.latitude && resource.longitude && (
-                    <a 
-                      href={`https://www.google.com/maps/dir/?api=1&destination=${resource.latitude},${resource.longitude}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="directions-link"
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      🗺️ Directions
-                    </a>
+                <span className="count">({resources.length})</span>
+              </h2>
+              {currentLocation && (
+                <button className="clear-location-btn" onClick={() => setCurrentLocation(null)}>
+                  Clear Location
+                </button>
+              )}
+            </div>
+
+            <div className="resources">
+              {resources.map((resource) => (
+                <div
+                  key={resource.id}
+                  className="resource-card"
+                  onClick={() => {
+                    setSelectedResource(resource);
+                    if (resource.latitude && resource.longitude) {
+                      setViewState({
+                        ...viewState,
+                        longitude: resource.longitude,
+                        latitude: resource.latitude,
+                        zoom: 14
+                      });
+                    }
+                  }}
+                >
+                  <h3>{resource.name}</h3>
+                  <p className="address">
+                    {resource.address}<br />
+                    {resource.city}, {resource.state} {resource.zip_code}
+                  </p>
+                  {resource.phone && (
+                    <p className="phone">📞 {resource.phone}</p>
                   )}
-                  {resource.website && (
-                    <a 
-                      href={resource.website} 
-                      target="_blank" 
-                      rel="noopener noreferrer"
-                      className="website-link"
-                      onClick={(e) => e.stopPropagation()}
+                  <div className="resource-links">
+                    {resource.latitude && resource.longitude && (
+                      <a
+                        href={`https://www.google.com/maps/dir/?api=1&destination=${resource.latitude},${resource.longitude}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="directions-link"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        🗺️ Directions
+                      </a>
+                    )}
+                    <button
+                      className={`favorite-btn ${favorites.includes(resource.id) ? 'active' : ''}`}
+                      onClick={(e) => handleFavoriteClick(e, resource)}
+                      title={favorites.includes(resource.id) ? "Remove from favorites" : "Add to favorites"}
                     >
-                      🌐 Website
-                    </a>
+                      <Heart size={20} fill={favorites.includes(resource.id) ? "currentColor" : "none"} />
+                    </button>
+                    {resource.website && (
+                      <a
+                        href={resource.website}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="website-link"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        🌐 Website
+                      </a>
+                    )}
+                  </div>
+                  {resource.distance !== undefined && (
+                    <p className="distance">
+                      📍 {resource.distance < 1
+                        ? `${(resource.distance * 5280).toFixed(0)} feet away`
+                        : `${resource.distance.toFixed(1)} miles away`
+                      }
+                    </p>
+                  )}
+                  {resource.categories && (
+                    <div className="tags">
+                      {resource.categories.map((cat, idx) => (
+                        <span key={idx} className="tag">{cat}</span>
+                      ))}
+                    </div>
                   )}
                 </div>
-                {resource.distance !== undefined && (
-                  <p className="distance">
-                    📍 {resource.distance < 1 
-                      ? `${(resource.distance * 5280).toFixed(0)} feet away`
-                      : `${resource.distance.toFixed(1)} miles away`
-                    }
-                  </p>
-                )}
-                {resource.categories && (
-                  <div className="tags">
-                    {resource.categories.map((cat, idx) => (
-                      <span key={idx} className="tag">{cat}</span>
-                    ))}
-                  </div>
-                )}
-              </div>
-            ))}
+              ))}
+            </div>
           </div>
-        </div>
         </div>
       </div>
 
       {/* Authentication Modal */}
-      <AuthModal 
-        isOpen={showAuthModal} 
-        onClose={() => setShowAuthModal(false)} 
+      <AuthModal
+        isOpen={showAuthModal}
+        onClose={() => setShowAuthModal(false)}
       />
 
       {/* Resource Submission Modal */}
-      <SubmitResourceModal 
-        isOpen={showSubmitModal} 
+      <SubmitResourceModal
+        isOpen={showSubmitModal}
         onClose={() => setShowSubmitModal(false)}
         categories={categories}
       />
+
+      {/* Debug Footer */}
+      <div style={{
+        position: 'fixed',
+        bottom: 0,
+        left: 0,
+        right: 0,
+        background: '#000',
+        color: '#0f0',
+        fontSize: '12px',
+        padding: '4px',
+        textAlign: 'center',
+        zIndex: 9999,
+        fontFamily: 'monospace'
+      }}>
+        User: {user?.email || 'None'} | Admin: {isAdmin ? 'YES' : 'NO'} | API: {API_BASE}
+      </div>
     </div>
   );
 }

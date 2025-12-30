@@ -27,6 +27,7 @@ CREATE TABLE resources (
     id SERIAL PRIMARY KEY,
     name VARCHAR(500) NOT NULL,
     slug VARCHAR(500) UNIQUE NOT NULL,
+    primary_category_id INTEGER REFERENCES categories(id),
     description TEXT,
     
     -- Location data
@@ -46,6 +47,10 @@ CREATE TABLE resources (
     hours_of_operation JSONB, -- Flexible JSON for complex schedules
     service_area TEXT,
     languages_spoken TEXT[],
+
+    -- Food Pantry Specific
+    food_dist_onsite BOOLEAN DEFAULT false,
+    food_dist_type VARCHAR(20) CHECK (food_dist_type IN ('boxes', 'meal', 'both')),
     
     -- Eligibility & requirements
     eligibility_requirements TEXT,
@@ -79,6 +84,21 @@ CREATE TABLE resource_categories (
     resource_id INTEGER REFERENCES resources(id) ON DELETE CASCADE,
     category_id INTEGER REFERENCES categories(id) ON DELETE CASCADE,
     PRIMARY KEY (resource_id, category_id)
+);
+
+-- Tags table (Secondary Services)
+CREATE TABLE tags (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(255) NOT NULL UNIQUE,
+    slug VARCHAR(255) NOT NULL UNIQUE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Resource tags junction table
+CREATE TABLE resource_tags (
+    resource_id INTEGER REFERENCES resources(id) ON DELETE CASCADE,
+    tag_id INTEGER REFERENCES tags(id) ON DELETE CASCADE,
+    PRIMARY KEY (resource_id, tag_id)
 );
 
 -- Users table
