@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { Helmet, HelmetProvider } from 'react-helmet-async';
 import Map, { Marker, Popup } from 'react-map-gl';
 import { MapPin, Search, Menu, X, Heart, Users, Navigation, MapPinned } from 'lucide-react';
 import 'mapbox-gl/dist/mapbox-gl.css';
@@ -9,6 +10,7 @@ import UserMenu from './components/UserMenu';
 import SubmitResourceModal from './components/SubmitResourceModal';
 import RegistrationPromo from './components/RegistrationPromo';
 import AdminDashboard from './components/AdminDashboard';
+import StructuredData from './components/StructuredData';
 
 const API_BASE = import.meta.env.VITE_API_URL || '/api';
 const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN;
@@ -31,6 +33,15 @@ function App() {
   const [showStats, setShowStats] = useState(false); // For mobile stats toggle
   const [showAuthModal, setShowAuthModal] = useState(false); // Authentication modal
   const [showSubmitModal, setShowSubmitModal] = useState(false); // Resource submission modal
+
+  // SEO Info
+  const pageTitle = mode === 'need_help'
+    ? 'HumanAid - Find Food, Shelter & Help'
+    : 'HumanAid - Volunteer & Give Help';
+
+  const pageDescription = mode === 'need_help'
+    ? 'Find local humanitarian resources including food pantries, shelters, and healthcare services.'
+    : 'Connect with your community and help those in need by listing resources or volunteering.';
 
   // Map state
   const [viewState, setViewState] = useState({
@@ -62,11 +73,14 @@ function App() {
   const fetchStats = async () => {
     try {
       const response = await fetch(`${API_BASE}/resources?mode=${mode}`);
+      if (!response.ok) throw new Error('Failed to fetch stats');
+
       const data = await response.json();
       // Use total from backend, or fallback to count
-      const totalResources = data.total || data.count || data.resources.length;
+      const resourcesList = data.resources || [];
+      const totalResources = data.total || data.count || resourcesList.length;
       // Count unique cities from returned resources (sample)
-      const uniqueCities = new Set(data.resources.map(r => `${r.city}, ${r.state}`)).size;
+      const uniqueCities = new Set(resourcesList.map(r => `${r.city}, ${r.state}`)).size;
       // Stats removed per user request
     } catch (error) {
       console.error('Error fetching stats:', error);
@@ -76,10 +90,12 @@ function App() {
   const fetchCategories = async () => {
     try {
       const response = await fetch(`${API_BASE}/categories?mode=${mode}`);
+      if (!response.ok) throw new Error('Failed to fetch categories');
       const data = await response.json();
-      setCategories(data.categories);
+      setCategories(data.categories || []);
     } catch (error) {
       console.error('Error fetching categories:', error);
+      setCategories([]);
     }
   };
 
@@ -87,33 +103,49 @@ function App() {
     setLoading(true);
     try {
       let url;
-
-      // If we have a current location (from ZIP or "Near Me"), use that
-      if (currentLocation) {
-        url = `${API_BASE}/resources?lat=${currentLocation.lat}&lon=${currentLocation.lon}&radius=${currentLocation.radius || 25}`;
+      if (searchQuery) {
+        url = `${API_BASE}/resources/search?q=${encodeURIComponent(searchQuery)}&mode=${mode}`;
+      } else if (currentLocation) {
+        // ... existing location logic ...
+        url = `${API_BASE}/resources?lat=${currentLocation.lat}&lon=${currentLocation.lon}&radius=20&mode=${mode}&limit=50`;
+        // Add category filter if selected
+        if (selectedCategory) {
+          url += `&category=${selectedCategory}`;
+        }
       } else {
-        // Default: show all resources
-        url = `${API_BASE}/resources?limit=100`;
-      }
-
-      // Add category filter if selected
-      if (selectedCategory) {
-        url += `&category=${selectedCategory}`;
+        url = `${API_BASE}/resources?mode=${mode}&limit=100`;
+        if (selectedCategory) {
+          url += `&category=${selectedCategory}`;
+        }
       }
 
       const response = await fetch(url);
+      if (!response.ok) throw new Error('Failed to fetch resources');
+
       const data = await response.json();
+      const resourcesList = data.resources || [];
 
-      console.log('[HumanAid] Fetched resources:', {
-        count: data.resources.length,
-        withCoords: data.resources.filter(r => r.latitude && r.longitude).length,
-        url: url
-      });
+      // If we have stats in the response, update them
+      if (data.total !== undefined) {
+        // checking if setStats should be updated could go here if stats were used
+      }
 
-      // Backend now calculates and sorts by distance, just use the data
-      setResources(data.resources);
+      setResources(resourcesList);
+
+      if (resourcesList.length === 0) {
+        // Don't unmount the map, just show a message
+        setMapError(null);
+        if (!searchQuery) {
+          setSearchInfo('No resources found in this area/category.');
+          setTimeout(() => setSearchInfo(null), 4000);
+        }
+      } else {
+        setMapError(null);
+      }
     } catch (error) {
       console.error('Error fetching resources:', error);
+      setResources([]);
+      setMapError('Failed to load resources. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -297,6 +329,13 @@ function App() {
 
   return (
     <div className="app-container">
+      <Helmet>
+        <title>{pageTitle}</title>
+        <meta name="description" content={pageDescription} />
+      </Helmet>
+
+      <StructuredData resources={resources} />
+
       {/* Header */}
       <header className="header">
         <div className="header-content">
@@ -647,22 +686,7 @@ function App() {
         categories={categories}
       />
 
-      {/* Debug Footer */}
-      <div style={{
-        position: 'fixed',
-        bottom: 0,
-        left: 0,
-        right: 0,
-        background: '#000',
-        color: '#0f0',
-        fontSize: '12px',
-        padding: '4px',
-        textAlign: 'center',
-        zIndex: 9999,
-        fontFamily: 'monospace'
-      }}>
-        User: {user?.email || 'None'} | Admin: {isAdmin ? 'YES' : 'NO'} | API: {API_BASE}
-      </div>
+
     </div>
   );
 }
@@ -671,7 +695,9 @@ function App() {
 function AppWithAuth() {
   return (
     <AuthProvider>
-      <App />
+      <HelmetProvider>
+        <App />
+      </HelmetProvider>
     </AuthProvider>
   );
 }

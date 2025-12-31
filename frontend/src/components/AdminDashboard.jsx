@@ -35,10 +35,13 @@ const AdminDashboard = () => {
         try {
             if (!confirm(`Are you sure you want to ${action} this submission?`)) return;
 
-            const res = await fetch(`${API_BASE}/submissions/${id}/${action}`, {
+            const res = await fetch(`${API_BASE}/submissions/${id}`, {
                 method: 'PATCH',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ userId: user.uid }) // Simple audit log
+                body: JSON.stringify({
+                    action: action,
+                    reviewedBy: user.uid
+                })
             });
 
             if (res.ok) {

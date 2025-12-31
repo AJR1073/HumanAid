@@ -1,0 +1,19 @@
+# HumanAid - Project Summary
+
+HumanAid is a community-driven platform connecting people in need with local humanitarian resources like food pantries, shelters, and healthcare services.
+
+## Core Features
+- **Interactive Map**: Visualize resources geographically.
+- **Resource Directory**: Browse categorized help (Food, Housing, Health).
+- **Community Submissions**: Users can submit new "hidden gem" resources.
+- **Up-to-date Information**: Real-time status on resource availability.
+
+## Key Routes
+- `/`: Main interactive map and resource list.
+- `/submit`: Form to submit a new resource.
+- `/admin`: Dashboard for resource curation (Restricted).
+
+## API Summary (Public)
+- `GET /api/resources`: Fetch list of approved resources.
+  - Query Params: `lat`, `lng`, `radius`, `category`.
+- `GET /api/categories`: List of resource categories.

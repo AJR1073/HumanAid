@@ -5,48 +5,49 @@ require('dotenv').config({ path: dotenvPath });
 
 // Production config often provided via environment variables directly (e.g. Cloud Run)
 const dbConfig = process.env.INSTANCE_CONNECTION_NAME
-    ? {
-        user: process.env.DB_USER || 'postgres',
-        password: process.env.DB_PASSWORD,
-        database: process.env.DB_NAME || 'humanaid',
-        host: `/cloudsql/${process.env.INSTANCE_CONNECTION_NAME}`,
-        connectionTimeoutMillis: 10000,
-        idleTimeoutMillis: 30000
-    }
-    : {
-        host: process.env.DB_HOST || 'localhost',
-        port: process.env.DB_PORT || 5432,
-        database: process.env.DB_NAME || 'humanaid',
-        user: process.env.DB_USER || 'postgres',
-        password: process.env.DB_PASSWORD,
-        connectionTimeoutMillis: 10000,
-        idleTimeoutMillis: 30000
-    };
+  ? {
+    user: process.env.DB_USER || 'postgres',
+    password: process.env.DB_PASSWORD,
+    database: process.env.DB_NAME || 'humanaid',
+    host: `/cloudsql/${process.env.INSTANCE_CONNECTION_NAME}`,
+    connectionTimeoutMillis: 10000,
+    idleTimeoutMillis: 30000
+  }
+  : {
+    host: process.env.DB_HOST || 'localhost',
+    port: process.env.DB_PORT || 5432,
+    database: process.env.DB_NAME || 'humanaid',
+    user: process.env.DB_USER || 'postgres',
+    password: process.env.DB_PASSWORD,
+    ssl: { rejectUnauthorized: false },
+    connectionTimeoutMillis: 10000,
+    idleTimeoutMillis: 30000
+  };
 
 const pool = new Pool(dbConfig);
 
 async function migrate() {
-    const client = await pool.connect();
-    try {
-        console.log('Starting Production Migration...');
+  const client = await pool.connect();
+  try {
+    console.log('Starting Production Migration...');
 
-        // 1. Add is_admin to users
-        console.log('Checking users.is_admin...');
-        await client.query(`
+    // 1. Add is_admin to users
+    console.log('Checking users.is_admin...');
+    await client.query(`
       ALTER TABLE users 
       ADD COLUMN IF NOT EXISTS is_admin BOOLEAN DEFAULT FALSE;
     `);
 
-        // 2. Add photo_url to users
-        console.log('Checking users.photo_url...');
-        await client.query(`
+    // 2. Add photo_url to users
+    console.log('Checking users.photo_url...');
+    await client.query(`
       ALTER TABLE users 
       ADD COLUMN IF NOT EXISTS photo_url TEXT;
     `);
 
-        // 3. Create user_favorites table
-        console.log('Checking user_favorites table...');
-        await client.query(`
+    // 3. Create user_favorites table
+    console.log('Checking user_favorites table...');
+    await client.query(`
       CREATE TABLE IF NOT EXISTS user_favorites (
         user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
         resource_id INTEGER REFERENCES resources(id) ON DELETE CASCADE,
@@ -55,9 +56,9 @@ async function migrate() {
       );
     `);
 
-        // 4. Create pending_submissions table
-        console.log('Checking pending_submissions table...');
-        await client.query(`
+    // 4. Create pending_submissions table
+    console.log('Checking pending_submissions table...');
+    await client.query(`
       CREATE TABLE IF NOT EXISTS pending_submissions (
         id SERIAL PRIMARY KEY,
         name VARCHAR(255) NOT NULL,
@@ -85,13 +86,13 @@ async function migrate() {
       );
     `);
 
-        console.log('Migration completed successfully.');
-    } catch (error) {
-        console.error('Migration failed:', error);
-    } finally {
-        client.release();
-        pool.end();
-    }
+    console.log('Migration completed successfully.');
+  } catch (error) {
+    console.error('Migration failed:', error);
+  } finally {
+    client.release();
+    pool.end();
+  }
 }
 
 migrate();

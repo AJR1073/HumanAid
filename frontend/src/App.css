@@ -2394,3 +2394,71 @@ body {
     width: 100%;
   }
 }
+/* Scan Section */
+.scan-section {
+  background: rgba(248, 250, 252, 0.6);
+  padding: 1.5rem;
+  border-radius: 12px;
+  border: 1px solid rgba(226, 232, 240, 0.8);
+  margin-bottom: 2rem;
+}
+
+.scan-section h3 {
+  font-size: 1rem;
+  font-weight: 600;
+  color: #1e293b;
+  margin-bottom: 1rem;
+}
+
+.scan-input-group {
+  display: flex;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.scan-input-group input {
+  flex: 1;
+  padding: 0.75rem 1rem;
+  border: 2px solid rgba(226, 232, 240, 0.8);
+  border-radius: 10px;
+  outline: none;
+  transition: all 0.2s;
+}
+
+.scan-input-group input:focus {
+  border-color: #3B82F6;
+  background: white;
+}
+
+.scan-btn {
+  padding: 0.75rem 1.5rem;
+  background: #3B82F6;
+  color: white;
+  border: none;
+  border-radius: 10px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+
+.scan-btn:hover:not(:disabled) {
+  background: #2563EB;
+}
+
+.scan-btn:disabled {
+  background: #94A3B8;
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
+.scan-hint {
+  font-size: 0.875rem;
+  color: #64748b;
+}
+
+.scan-error {
+  color: #DC2626;
+  font-size: 0.875rem;
+  margin-bottom: 0.5rem;
+}

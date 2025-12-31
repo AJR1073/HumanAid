@@ -1,3 +1,4 @@
+const functions = require('firebase-functions');
 const express = require('express');
 const cors = require('cors');
 const { Pool } = require('pg');
@@ -7,9 +8,12 @@ const app = express();
 const port = process.env.PORT || 4000;
 
 // Database connection
-// Use Cloud SQL socket if INSTANCE_CONNECTION_NAME is set (production)
+// Use Cloud SQL socket if INSTANCE_CONNECTION_NAME is set AND we are in a Cloud environment
 // Otherwise use host/port (local development)
-const dbConfig = process.env.INSTANCE_CONNECTION_NAME
+const isCloudEnv = process.env.K_SERVICE || process.env.FUNCTION_NAME;
+const useSocket = process.env.INSTANCE_CONNECTION_NAME && isCloudEnv;
+
+const dbConfig = useSocket
   ? {
     user: process.env.DB_USER || 'postgres',
     password: process.env.DB_PASSWORD,
@@ -24,6 +28,7 @@ const dbConfig = process.env.INSTANCE_CONNECTION_NAME
     database: process.env.DB_NAME || 'humanaid',
     user: process.env.DB_USER || 'postgres',
     password: process.env.DB_PASSWORD,
+    ssl: process.env.DB_HOST !== 'localhost' ? { rejectUnauthorized: false } : false,
     connectionTimeoutMillis: 10000,
     idleTimeoutMillis: 30000
   };
@@ -32,12 +37,13 @@ const pool = new Pool(dbConfig);
 
 // Log DB config on startup (without password)
 console.log('[DB Config]', {
-  mode: process.env.INSTANCE_CONNECTION_NAME ? 'Cloud SQL Socket' : 'TCP/IP',
+  mode: useSocket ? 'Cloud SQL Socket' : 'TCP/IP',
   instanceConnectionName: process.env.INSTANCE_CONNECTION_NAME || 'not set',
   host: dbConfig.host,
   database: process.env.DB_NAME || 'humanaid',
   user: process.env.DB_USER || 'postgres',
-  hasPassword: !!process.env.DB_PASSWORD
+  hasPassword: !!process.env.DB_PASSWORD,
+  isCloudEnv: !!isCloudEnv
 });
 
 // Middleware
@@ -211,15 +217,24 @@ app.get('/api/categories', async (req, res) => {
   try {
     const { mode } = req.query;
 
-    let query = 'SELECT * FROM categories WHERE parent_id IS NULL';
+    let query = `
+      SELECT c.*, COUNT(r.id) as resource_count
+      FROM categories c
+      LEFT JOIN resources r ON r.primary_category_id = c.id AND r.is_active = true
+      WHERE c.parent_id IS NULL
+    `;
     const params = [];
 
     if (mode) {
-      query += ' AND (mode = $1 OR mode = \'both\')';
+      query += ' AND (c.mode = $1 OR c.mode = \'both\')';
       params.push(mode);
     }
 
-    query += ' ORDER BY display_order';
+    query += `
+      GROUP BY c.id
+      HAVING COUNT(r.id) > 0
+      ORDER BY c.display_order
+    `;
 
     const result = await pool.query(query, params);
     res.json({ categories: result.rows });
@@ -395,6 +410,214 @@ app.get('/api/stats', async (req, res) => {
   }
 });
 
+const axios = require('axios');
+const cheerio = require('cheerio');
+
+// CORS configuration
+const allowedOrigins = [
+  'http://localhost:5173',
+  'http://localhost:4173',
+  'https://humanaidapp.org',
+  'https://humanaid-79963.web.app',
+  'https://gocasino-1ecc9.web.app',
+  'https://gocasino-1ecc9.firebaseapp.com'
+];
+
+// URL Scanner endpoint
+app.post('/api/scan-url', async (req, res) => {
+  try {
+    const { url } = req.body;
+    if (!url) return res.status(400).json({ error: 'URL is required' });
+
+    // Validate URL format
+    try {
+      new URL(url);
+    } catch (e) {
+      return res.status(400).json({ error: 'Invalid URL format' });
+    }
+
+    const response = await axios.get(url, {
+      timeout: 5000,
+      headers: {
+        'User-Agent': 'HumanAid-Bot/1.0'
+      }
+    });
+
+    const $ = cheerio.load(response.data);
+    const title = $('title').text().trim() || $('meta[property="og:title"]').attr('content') || '';
+    const description = $('meta[name="description"]').attr('content') ||
+      $('meta[property="og:description"]').attr('content') || '';
+
+    // Clean up title (remove common suffixes like " - Home", " | Brand")
+    const cleanTitle = title.split(/ [|\-] /)[0].trim();
+
+    // Helper: Predict Category based on keywords
+    const predictCategory = (text) => {
+      const lowerText = text.toLowerCase();
+      // Mapping of keywords to category slugs
+      const categoryMap = {
+        'senior-centers': ['senior', 'elder', 'aging', 'retirement', '55+', 'golden years'],
+        'food': ['food', 'pantry', 'hunger', 'meal', 'nutrition', 'soup kitchen'],
+        'housing': ['housing', 'shelter', 'homeless', 'eviction', 'rent', 'apartment'],
+        'health': ['medical', 'health', 'clinic', 'doctor', 'care', 'hospital', 'dental'],
+        'legal': ['legal', 'law', 'attorney', 'justice', 'court'],
+        'mental-health': ['mental', 'counseling', 'therapy', 'suicide', 'crisis', 'depression'],
+        'veterans-support': ['veteran', 'military', 'army', 'navy', 'air force', 'marines'],
+        'child-care': ['child', 'daycare', 'preschool', 'kids', 'baby'],
+        'education': ['school', 'education', 'tutoring', 'literacy', 'ged'],
+        'employment': ['job', 'career', 'employment', 'work', 'hiring', 'resume'],
+        'transportation': ['transport', 'ride', 'bus', 'transit', 'shuttle'],
+        'clothing': ['clothing', 'clothes', 'attire', 'wardrobe', 'closet'],
+        'utility-assistance': ['utility', 'electric', 'gas', 'water', 'bill', 'heap'],
+        'financial-assistance': ['financial', 'money', 'grant', 'loan', 'budget']
+      };
+
+      let bestCategory = '';
+      let maxScore = 0;
+
+      for (const [slug, keywords] of Object.entries(categoryMap)) {
+        let score = 0;
+        keywords.forEach(keyword => {
+          if (lowerText.includes(keyword)) score++;
+        });
+        if (score > maxScore) {
+          maxScore = score;
+          bestCategory = slug;
+        }
+      }
+      return maxScore > 0 ? bestCategory : '';
+    };
+
+    const suggestedCategory = predictCategory(cleanTitle + ' ' + description);
+
+    // Extract Phone (look for tel: link first, then regex)
+    let phone = $('a[href^="tel:"]').first().attr('href')?.replace('tel:', '') || '';
+    if (!phone) {
+      const phoneRegex = /(\(\d{3}\)\s*\d{3}[-\s]\d{4}|\d{3}[-\s]\d{3}[-\s]\d{4})/;
+      phone = $('body').text().match(phoneRegex)?.[0] || '';
+    }
+
+    // Extract Email (look for mailto: link first, then regex)
+    let email = $('a[href^="mailto:"]').first().attr('href')?.replace('mailto:', '') || '';
+    if (!email) {
+      const emailRegex = /([a-zA-Z0-9._-]+@[a-zA-Z0-9._-]+\.[a-zA-Z0-9._-]+)/;
+      email = $('body').text().match(emailRegex)?.[0] || '';
+    }
+
+    // Extract Address (Schema.org or common classes)
+    let address = '';
+    let city = '';
+    let state = '';
+    let zipCode = '';
+
+    // Try Schema.org Address
+    const schemaScript = $('script[type="application/ld+json"]').html();
+    if (schemaScript) {
+      try {
+        const schema = JSON.parse(schemaScript);
+        const postalAddress = schema.address || (schema['@graph']?.find(i => i.address)?.address);
+        if (postalAddress) {
+          address = postalAddress.streetAddress || '';
+          city = postalAddress.addressLocality || '';
+          state = postalAddress.addressRegion || '';
+          zipCode = postalAddress.postalCode || '';
+        }
+      } catch (e) {
+        console.log('Error parsing schema for address', e);
+      }
+    }
+
+    // Fallback: Regex for US Address (Heuristic: Right-to-Left)
+    if (!address) {
+      const bodyText = $('body').text().replace(/\s+/g, ' ');
+
+      // Regex to find ", City, State Zip" or ".City, State Zip" (handling text merge)
+      // Group 1: City, Group 2: State, Group 3: Zip (5 digits)
+      const stateZipRegex = /(?:,|.)\s*([A-Za-z\s]+?)\s*(?:,|.)\s*([A-Z]{2})\s*(?:,|.)\s*(\d{5}(?:-\d{4})?)/g;
+
+      let match;
+      while ((match = stateZipRegex.exec(bodyText)) !== null) {
+        const cityCandidate = match[1];
+        const stateCandidate = match[2];
+        const zipCandidate = match[3];
+
+        if (stateCandidate === stateCandidate.toUpperCase() && cityCandidate.length < 30) {
+          const endIndex = match.index;
+          // Look backwards for the street up to 100 chars
+          const lookback = bodyText.substring(Math.max(0, endIndex - 100), endIndex);
+
+          // Try to find the start of street address (starts with digit)
+          const streetMatch = lookback.match(/(\d+\s+[A-Za-z0-9\s.]+?)$/);
+
+          if (streetMatch) {
+            address = streetMatch[1].trim();
+            if (address.endsWith('.')) address = address.slice(0, -1);
+
+            city = cityCandidate.trim();
+            state = stateCandidate;
+            zipCode = zipCandidate;
+            break;
+          }
+        }
+      }
+    }
+
+    // Extract Hours (Regex for common patterns)
+    let hours = '';
+    const bodyTextNorm = $('body').text().replace(/\s+/g, ' ');
+    // Look for keywords like "Hours", "Open" followed by time patterns
+    const hoursRegex = /(?:Hours|Operation|Open)[:\s]+((?:Mon|Tue|Wed|Thu|Fri|Sat|Sun|Daily|Weekdays|Weekends).*?(?:am|pm|a\.m\.|p\.m\.|:00))/i;
+    const hoursMatch = bodyTextNorm.match(hoursRegex);
+    if (hoursMatch) {
+      hours = hoursMatch[1].trim().substring(0, 100); // Limit length
+    }
+
+    // Strategy 2: Look for JSON data in raw HTML
+    if (!hours) {
+      const openHoursRegex = /"open_hours":(\[.*?\])/;
+      const jsonMatch = response.data.match(openHoursRegex);
+      if (jsonMatch) {
+        try {
+          const rawHours = JSON.parse(jsonMatch[1]);
+          const schedule = rawHours
+            .filter(h => h.status === 1 && h.start && h.end)
+            .map(h => `${h.start} - ${h.end}`);
+
+          if (schedule.length > 0) {
+            const uniqueHours = [...new Set(schedule)];
+            // If all days are the same, just show one range
+            if (uniqueHours.length === 1 && rawHours.length >= 5) {
+              hours = `Mon-Fri ${uniqueHours[0]}`;
+            } else {
+              hours = uniqueHours.join(', ');
+            }
+          }
+        } catch (e) {
+          console.log('Error parsing open_hours JSON', e);
+        }
+      }
+    }
+
+    res.json({
+      title: cleanTitle,
+      description: description.substring(0, 500), // Limit length
+      url: url,
+      phone: phone.trim(),
+      email: email.split('?')[0].trim(), // Remove query params from mailto
+      address: address,
+      city: city,
+      state: state,
+      zipCode: zipCode,
+      hours: hours,
+      suggestedCategory: suggestedCategory
+    });
+
+  } catch (error) {
+    console.error('Error scanning URL:', error.message);
+    res.status(500).json({ error: 'Failed to scan URL. Please enter details manually.' });
+  }
+});
+
 // Submit a new resource (pending approval)
 app.post('/api/submissions', async (req, res) => {
   try {
@@ -500,20 +723,24 @@ app.patch('/api/submissions/:id', async (req, res) => {
 
       const sub = submission.rows[0];
 
-      // Geocode the address (simplified - use actual geocoding in production)
-      // For now, we'll set a placeholder location
-
       // Insert into resources table
+      // Generate slug
+      let slug = sub.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+      slug = `${slug}-${Date.now().toString().slice(-4)}`;
+
+      // Default location (Alton, IL) if no geocoding
+      // ST_SetSRID(ST_MakePoint(-90.1843, 38.8906), 4326)
+
       const newResource = await pool.query(`
         INSERT INTO resources (
-          name, description, address, city, state, zip_code,
+          name, slug, description, address, city, state, zip_code,
           phone, website, email, hours, primary_category_id,
           food_dist_onsite, food_dist_type,
-          is_active, created_at
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, true, NOW())
+          is_active, location, created_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, true, ST_SetSRID(ST_MakePoint(-90.1843, 38.8906), 4326), NOW())
         RETURNING id
       `, [
-        sub.name, sub.description, sub.address, sub.city, sub.state, sub.zip_code,
+        sub.name, slug, sub.description, sub.address, sub.city, sub.state, sub.zip_code,
         sub.phone, sub.website, sub.email, sub.hours, sub.primary_category_id,
         sub.food_dist_onsite, sub.food_dist_type
       ]);
@@ -709,8 +936,13 @@ app.post('/api/admin/promote', async (req, res) => {
   }
 });
 
-// Start server
-app.listen(port, () => {
-  console.log(`🚀 HumanAid API server running on port ${port}`);
-  console.log(`📍 http://localhost:${port}/api/health`);
-});
+// Export for Firebase Functions
+exports.api = functions.https.onRequest(app);
+
+// Start server locally (only if not running as a Cloud Function)
+if (process.env.NODE_ENV !== 'production' && require.main === module) {
+  app.listen(port, () => {
+    console.log(`🚀 HumanAid API server running on port ${port}`);
+    console.log(`📍 http://localhost:${port}/api/health`);
+  });
+}

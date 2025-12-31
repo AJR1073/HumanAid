@@ -9,7 +9,7 @@ const SubmitResourceModal = ({ isOpen, onClose, categories = [] }) => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitStatus, setSubmitStatus] = useState(null); // 'success' | 'error'
   const [errorMessage, setErrorMessage] = useState('');
-  
+
   const [formData, setFormData] = useState({
     name: '',
     description: '',
@@ -24,6 +24,10 @@ const SubmitResourceModal = ({ isOpen, onClose, categories = [] }) => {
     categoryId: '',
     notes: ''
   });
+
+  const [scanUrl, setScanUrl] = useState('');
+  const [isScanning, setIsScanning] = useState(false);
+  const [scanError, setScanError] = useState('');
 
   // Reset form when modal closes
   useEffect(() => {
@@ -44,10 +48,65 @@ const SubmitResourceModal = ({ isOpen, onClose, categories = [] }) => {
       });
       setSubmitStatus(null);
       setErrorMessage('');
+      setScanUrl('');
+      setScanError('');
     }
   }, [isOpen]);
 
   if (!isOpen) return null;
+
+  const handleScan = async () => {
+    if (!scanUrl) return;
+    setIsScanning(true);
+    setScanError('');
+
+    try {
+      const response = await fetch(`${API_BASE}/scan-url`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ url: scanUrl })
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to scan URL');
+      }
+
+      setFormData(prev => {
+        // Try to find matching category by slug
+        let foundCategoryId = prev.categoryId;
+        if (data.suggestedCategory && categories.length > 0) {
+          const match = categories.find(c => c.slug === data.suggestedCategory);
+          if (match) {
+            foundCategoryId = match.id;
+          }
+        }
+
+        return {
+          ...prev,
+          name: data.title || prev.name,
+          description: data.description || prev.description,
+          website: data.url || prev.website,
+          phone: data.phone || prev.phone,
+          email: data.email || prev.email,
+          address: data.address || prev.address,
+          city: data.city || prev.city,
+          state: data.state || prev.state,
+          zipCode: data.zipCode || prev.zipCode,
+          hours: data.hours || prev.hours,
+          categoryId: foundCategoryId
+        };
+      });
+    } catch (error) {
+      console.error('Scan error:', error);
+      setScanError(error.message);
+    } finally {
+      setIsScanning(false);
+    }
+  };
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -67,6 +126,7 @@ const SubmitResourceModal = ({ isOpen, onClose, categories = [] }) => {
         },
         body: JSON.stringify({
           ...formData,
+          primaryCategoryId: formData.categoryId,
           submittedBy: user?.email || 'anonymous',
           submittedByName: user?.displayName || 'Anonymous',
           submittedByUid: user?.uid || null
@@ -112,7 +172,7 @@ const SubmitResourceModal = ({ isOpen, onClose, categories = [] }) => {
     <div className="modal-overlay" onClick={onClose}>
       <div className="submit-modal" onClick={(e) => e.stopPropagation()}>
         <button className="modal-close" onClick={onClose}>✕</button>
-        
+
         <div className="submit-header">
           <h2>Submit a Resource</h2>
           <p>Help others by adding a local assistance resource</p>
@@ -124,11 +184,34 @@ const SubmitResourceModal = ({ isOpen, onClose, categories = [] }) => {
           </div>
         )}
 
+        <div className="scan-section">
+          <h3>Auto-fill from Website</h3>
+          <div className="scan-input-group">
+            <input
+              type="url"
+              placeholder="https://example.org"
+              value={scanUrl}
+              onChange={(e) => setScanUrl(e.target.value)}
+              disabled={isScanning}
+            />
+            <button
+              type="button"
+              className="scan-btn"
+              onClick={handleScan}
+              disabled={isScanning || !scanUrl}
+            >
+              {isScanning ? 'Scanning...' : 'Auto-fill'}
+            </button>
+          </div>
+          {scanError && <p className="scan-error">{scanError}</p>}
+          <p className="scan-hint">Enter the organization's website to automatically fill details.</p>
+        </div>
+
         <form onSubmit={handleSubmit} className="submit-form">
           {/* Organization Info */}
           <div className="form-section">
             <h3>Organization Information</h3>
-            
+
             <div className="form-group">
               <label htmlFor="name">Organization Name *</label>
               <input
@@ -180,7 +263,7 @@ const SubmitResourceModal = ({ isOpen, onClose, categories = [] }) => {
           {/* Location Info */}
           <div className="form-section">
             <h3>Location</h3>
-            
+
             <div className="form-group">
               <label htmlFor="address">Street Address *</label>
               <input
@@ -246,7 +329,7 @@ const SubmitResourceModal = ({ isOpen, onClose, categories = [] }) => {
           {/* Contact Info */}
           <div className="form-section">
             <h3>Contact Information</h3>
-            
+
             <div className="form-row">
               <div className="form-group">
                 <label htmlFor="phone">Phone Number</label>
@@ -305,7 +388,7 @@ const SubmitResourceModal = ({ isOpen, onClose, categories = [] }) => {
           {/* Additional Info */}
           <div className="form-section">
             <h3>Additional Information</h3>
-            
+
             <div className="form-group">
               <label htmlFor="notes">Notes for Reviewers</label>
               <textarea
@@ -325,16 +408,16 @@ const SubmitResourceModal = ({ isOpen, onClose, categories = [] }) => {
               * Required fields. Submissions are reviewed before publishing.
             </p>
             <div className="submit-actions">
-              <button 
-                type="button" 
+              <button
+                type="button"
                 className="cancel-btn"
                 onClick={onClose}
                 disabled={isSubmitting}
               >
                 Cancel
               </button>
-              <button 
-                type="submit" 
+              <button
+                type="submit"
                 className="submit-btn"
                 disabled={isSubmitting}
               >
