@@ -2,7 +2,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 
-const UserMenu = ({ onLoginClick, onSubmitClick, onAdminClick }) => {
+const UserMenu = ({ onLoginClick, onSubmitClick, onFavoritesClick, isFavoritesView, onAdminClick }) => {
   const { user, logout, isAdmin } = useAuth();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const menuRef = useRef(null);
@@ -62,11 +62,23 @@ const UserMenu = ({ onLoginClick, onSubmitClick, onAdminClick }) => {
           <div className="user-dropdown-divider" />
 
           <div className="user-dropdown-menu">
-            <button className="dropdown-item">
-              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" />
-              </svg>
-              My Favorites
+            <button className="dropdown-item" onClick={() => { setIsMenuOpen(false); if (onFavoritesClick) onFavoritesClick(); }}>
+              {isFavoritesView ? (
+                <>
+                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <line x1="18" y1="6" x2="6" y2="18"></line>
+                    <line x1="6" y1="6" x2="18" y2="18"></line>
+                  </svg>
+                  Show All Resources
+                </>
+              ) : (
+                <>
+                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" />
+                  </svg>
+                  My Favorites
+                </>
+              )}
             </button>
 
             <button className="dropdown-item" onClick={() => { setIsMenuOpen(false); onSubmitClick?.(); }}>

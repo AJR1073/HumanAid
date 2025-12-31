@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { Check, X, Shield, Clock, MapPin, Phone, Globe, Mail } from 'lucide-react';
+import AdminResourceModal from './AdminResourceModal';
 
 const API_BASE = import.meta.env.VITE_API_URL || '/api';
 
@@ -8,15 +9,27 @@ const AdminDashboard = () => {
     const { user, isAdmin } = useAuth();
     const [submissions, setSubmissions] = useState([]);
     const [loading, setLoading] = useState(true);
-    const [activeTab, setActiveTab] = useState('submissions'); // 'submissions' | 'admins'
+    const [activeTab, setActiveTab] = useState('submissions'); // 'submissions' | 'resources' | 'admins'
+    const [resources, setResources] = useState([]); // Admin resources list
+    const [resourceSearch, setResourceSearch] = useState('');
+    const [missingZipOnly, setMissingZipOnly] = useState(false);
     const [adminEmail, setAdminEmail] = useState('');
     const [promoteStatus, setPromoteStatus] = useState(null);
+    const [admins, setAdmins] = useState([]); // List of current admins
 
-    useEffect(() => {
-        if (isAdmin && activeTab === 'submissions') {
-            fetchSubmissions();
+    // Edit Modal State
+    const [editingResource, setEditingResource] = useState(null);
+    const [categories, setCategories] = useState([]);
+
+    const fetchCategories = async () => {
+        try {
+            const res = await fetch(`${API_BASE}/categories?include_empty=true&all_levels=true`);
+            const data = await res.json();
+            setCategories(data.categories || []);
+        } catch (e) {
+            console.error('Failed to fetch categories', e);
         }
-    }, [isAdmin, activeTab]);
+    };
 
     const fetchSubmissions = async () => {
         setLoading(true);
@@ -29,6 +42,53 @@ const AdminDashboard = () => {
         } finally {
             setLoading(false);
         }
+    };
+
+    const fetchResources = async () => {
+        setLoading(true);
+        try {
+            const res = await fetch(`${API_BASE}/admin/resources?search=${encodeURIComponent(resourceSearch)}&missing_zip=${missingZipOnly}`);
+            const data = await res.json();
+            setResources(data.resources || []);
+        } catch (error) {
+            console.error('Error fetching resources:', error);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const fetchAdmins = async () => {
+        setLoading(true);
+        try {
+            const res = await fetch(`${API_BASE}/admin/list`);
+            const data = await res.json();
+            setAdmins(data.admins || []);
+        } catch (error) {
+            console.error('Error fetching admins:', error);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    useEffect(() => {
+        if (isAdmin) {
+            fetchCategories();
+            if (activeTab === 'submissions') fetchSubmissions();
+            if (activeTab === 'resources') fetchResources();
+            if (activeTab === 'admins') fetchAdmins();
+        }
+    }, [isAdmin, activeTab, resourceSearch, missingZipOnly]);
+
+    const handleSaveResource = async (id, updatedData) => {
+        const res = await fetch(`${API_BASE}/admin/resources/${id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(updatedData)
+        });
+        if (!res.ok) throw new Error('Failed to update');
+
+        // Refresh list
+        fetchResources();
     };
 
     const handleAction = async (id, action) => {
@@ -67,6 +127,7 @@ const AdminDashboard = () => {
             if (res.ok) {
                 setPromoteStatus({ type: 'success', msg: `Users with email ${adminEmail} are now Admins.` });
                 setAdminEmail('');
+                fetchAdmins();
             } else {
                 throw new Error('Failed');
             }
@@ -95,6 +156,12 @@ const AdminDashboard = () => {
                         onClick={() => setActiveTab('submissions')}
                     >
                         Submissions ({submissions.length})
+                    </button>
+                    <button
+                        className={activeTab === 'resources' ? 'active' : ''}
+                        onClick={() => setActiveTab('resources')}
+                    >
+                        All Resources
                     </button>
                     <button
                         className={activeTab === 'admins' ? 'active' : ''}
@@ -155,6 +222,60 @@ const AdminDashboard = () => {
                             ))}
                         </div>
                     )
+                ) : activeTab === 'resources' ? (
+                    <div className="resources-manager">
+                        <div className="resource-search-bar">
+                            <input
+                                type="text"
+                                placeholder="Name, City, or Zip (e.g. 62002)..."
+                                value={resourceSearch}
+                                onChange={(e) => setResourceSearch(e.target.value)}
+                            />
+                            <small style={{ display: 'block', marginTop: '5px', color: '#666' }}>
+                                Search by Resource Name, City, or 5-digit Zip Code.
+                            </small>
+                        </div>
+                        {loading ? (
+                            <div className="loading-spinner">Loading...</div>
+                        ) : resources.length === 0 ? (
+                            <div className="empty-state">No resources found</div>
+                        ) : (
+                            <div className="submissions-grid">
+                                {resources.map(res => (
+                                    <div key={res.id} className="submission-card">
+                                        <div className="sub-header">
+                                            <h3>{res.name}</h3>
+                                            <span className={`status-badge ${res.is_active ? 'active' : 'inactive'}`}>
+                                                {res.is_active ? 'Active' : 'Inactive'}
+                                            </span>
+                                        </div>
+                                        <div className="sub-details">
+                                            <p><strong>Category:</strong> {res.category_name || res.primary_category_id}</p>
+                                            <p>{res.address}, {res.city}</p>
+                                            <div style={{ marginTop: '10px' }}>
+                                                <button
+                                                    className="edit-resource-btn"
+                                                    onClick={() => setEditingResource(res)}
+                                                    style={{
+                                                        width: '100%',
+                                                        padding: '0.5rem',
+                                                        background: '#3B82F6',
+                                                        color: 'white',
+                                                        border: 'none',
+                                                        borderRadius: '6px',
+                                                        cursor: 'pointer',
+                                                        fontWeight: '600'
+                                                    }}
+                                                >
+                                                    Edit / Fix
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
                 ) : (
                     <div className="admin-management">
                         <h3>Add New Admin</h3>
@@ -178,7 +299,56 @@ const AdminDashboard = () => {
                         )}
                     </div>
                 )}
+
+                <div className="current-admins-list" style={{ marginTop: '2rem' }}>
+                    <h3>Current Admins</h3>
+                    {loading ? <p>Loading...</p> : (
+                        <div className="submissions-grid">
+                            {admins.map(admin => (
+                                <div key={admin.id} className="submission-card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                    <div>
+                                        <strong>{admin.email}</strong>
+                                        <p style={{ margin: 0, fontSize: '0.9em', color: '#666' }}>
+                                            {admin.display_name || 'No Name'} • Last Login: {admin.last_login ? new Date(admin.last_login).toLocaleDateString() : 'Never'}
+                                        </p>
+                                    </div>
+                                    {admin.email !== user?.email && (
+                                        <button
+                                            onClick={async () => {
+                                                if (!confirm(`Are you sure you want to remove admin access from ${admin.email}?`)) return;
+                                                try {
+                                                    const res = await fetch(`${API_BASE}/admin/demote`, {
+                                                        method: 'POST',
+                                                        headers: { 'Content-Type': 'application/json' },
+                                                        body: JSON.stringify({ email: admin.email })
+                                                    });
+                                                    if (res.ok) fetchAdmins();
+                                                    else alert('Failed to demote');
+                                                } catch (e) { console.error(e); alert('Error demoting'); }
+                                            }}
+                                            style={{
+                                                background: '#fee2e2', color: '#991b1b', border: '1px solid #f87171',
+                                                padding: '5px 10px', borderRadius: '6px', cursor: 'pointer'
+                                            }}
+                                        >
+                                            Demote
+                                        </button>
+                                    )}
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </div>
             </div>
+            {editingResource && (
+                <AdminResourceModal
+                    isOpen={!!editingResource}
+                    onClose={() => setEditingResource(null)}
+                    resource={editingResource}
+                    categories={categories}
+                    onSave={handleSaveResource}
+                />
+            )}
         </div>
     );
 };

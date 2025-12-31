@@ -59,7 +59,7 @@ export const AuthProvider = ({ children }) => {
     try {
       const res = await fetch(`${API_BASE}/favorites?uid=${uid}`);
       const data = await res.json();
-      if (data.favorites) setFavorites(data.favorites);
+      if (data.favorites) setFavorites(data.favorites.map(id => Number(id)));
     } catch (err) {
       console.error('Fetch favorites failed:', err);
     }
@@ -85,16 +85,23 @@ export const AuthProvider = ({ children }) => {
   const toggleFavorite = async (resourceId) => {
     if (!user) return false;
 
+    // Ensure ID is a number to prevent type mismatch (string vs int)
+    const id = Number(resourceId);
+    if (isNaN(id)) {
+      console.error('Invalid resource ID:', resourceId);
+      return false;
+    }
+
     // Optimistic Update
-    const isFav = favorites.includes(resourceId);
-    const newFavs = isFav ? favorites.filter(id => id !== resourceId) : [...favorites, resourceId];
+    const isFav = favorites.includes(id);
+    const newFavs = isFav ? favorites.filter(favId => favId !== id) : [...favorites, id];
     setFavorites(newFavs);
 
     try {
       await fetch(`${API_BASE}/favorites`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ uid: user.uid, resourceId })
+        body: JSON.stringify({ uid: user.uid, resourceId: id })
       });
       return !isFav;
     } catch (err) {

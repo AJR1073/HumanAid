@@ -102,7 +102,8 @@ app.get('/api/resources', async (req, res) => {
       lat,
       lon,
       radius = 10, // miles
-      limit = 100
+      limit = 100,
+      ids // comma-separated list of IDs
     } = req.query;
 
     let query = `
@@ -164,6 +165,15 @@ app.get('/api/resources', async (req, res) => {
       paramCount++;
     }
 
+    if (ids) {
+      const idList = ids.split(',').map(id => parseInt(id.trim())).filter(id => !isNaN(id));
+      if (idList.length > 0) {
+        query += ` AND r.id = ANY($${paramCount})`;
+        params.push(idList);
+        paramCount++;
+      }
+    }
+
     // Location-based search (radius filter)
     if (lat && lon) {
       query += ` AND ST_DWithin(
@@ -215,26 +225,35 @@ app.get('/api/resources', async (req, res) => {
 // Get categories
 app.get('/api/categories', async (req, res) => {
   try {
-    const { mode } = req.query;
+    const { mode, include_empty, all_levels } = req.query;
 
     let query = `
       SELECT c.*, COUNT(r.id) as resource_count
       FROM categories c
       LEFT JOIN resources r ON r.primary_category_id = c.id AND r.is_active = true
-      WHERE c.parent_id IS NULL
+      WHERE 1=1
     `;
     const params = [];
 
+    // Filter by parent_id unless all_levels is requested
+    if (all_levels !== 'true') {
+      query += ' AND c.parent_id IS NULL';
+    }
+
+    let paramCount = 1;
     if (mode) {
-      query += ' AND (c.mode = $1 OR c.mode = \'both\')';
+      query += ` AND (c.mode = $${paramCount} OR c.mode = 'both')`;
       params.push(mode);
     }
 
-    query += `
-      GROUP BY c.id
-      HAVING COUNT(r.id) > 0
-      ORDER BY c.display_order
-    `;
+    query += ` GROUP BY c.id`;
+
+    // Only filter out empty categories if include_empty is NOT true
+    if (include_empty !== 'true') {
+      query += ` HAVING COUNT(r.id) > 0`;
+    }
+
+    query += ` ORDER BY c.display_order`;
 
     const result = await pool.query(query, params);
     res.json({ categories: result.rows });
@@ -925,6 +944,113 @@ app.get('/api/submissions/pending', async (req, res) => {
   }
 });
 
+app.get('/api/admin/resources', async (req, res) => {
+  try {
+    const { page = 1, limit = 20, search = '', missing_zip = 'false' } = req.query;
+    const offset = (page - 1) * limit;
+
+    let query = `
+      SELECT r.*, c.name as category_name
+      FROM resources r
+      LEFT JOIN categories c ON r.primary_category_id = c.id
+    `;
+    const params = [];
+    const conditions = [];
+
+    if (search) {
+      conditions.push(`(r.name ILIKE $${params.length + 1} OR r.city ILIKE $${params.length + 1} OR r.zip_code ILIKE $${params.length + 1} OR r.address ILIKE $${params.length + 1})`);
+      params.push(`%${search}%`);
+    }
+
+    if (missing_zip === 'true') {
+      conditions.push(`(r.zip_code IS NULL OR r.zip_code = '')`);
+    }
+
+    if (conditions.length > 0) {
+      query += ' WHERE ' + conditions.join(' AND ');
+    }
+
+    query += ` ORDER BY r.created_at DESC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
+    params.push(limit, offset);
+
+    const result = await pool.query(query, params);
+
+    // Get total count
+    let countQuery = 'SELECT COUNT(*) FROM resources r';
+    if (conditions.length > 0) {
+      countQuery += ' WHERE ' + conditions.join(' AND ');
+    }
+
+    // Re-use params for count query (only search/filter params, not limit/offset)
+    const countParams = params.slice(0, params.length - 2);
+    const countRes = await pool.query(countQuery, countParams);
+
+    res.json({
+      resources: result.rows,
+      total: parseInt(countRes.rows[0].count),
+      page: parseInt(page),
+      totalPages: Math.ceil(parseInt(countRes.rows[0].count) / limit)
+    });
+  } catch (error) {
+    console.error('Error fetching admin resources:', error);
+    res.status(500).json({ error: 'Failed' });
+  }
+});
+
+app.put('/api/admin/resources/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const {
+      name, address, city, state, zip_code, phone, website, email, hours, primary_category_id, is_active,
+      eligibility_requirements, appointment_required, walk_ins_accepted,
+      food_dist_type, food_dist_onsite, service_area, languages_spoken
+    } = req.body;
+
+    // Generate new slug if name changes (optional, but good practice)
+    let slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+    slug = `${slug}-${id.slice(-4)}`; // Use ID segment to keep stable
+
+    // Format languages_spoken as array literal or null
+    const languagesArray = languages_spoken
+      ? `{${languages_spoken.split(',').map(s => `"${s.trim()}"`).join(',')}}`
+      : null;
+
+    // Ensure food_dist_type is valid or null
+    const validFoodTypes = ['boxes', 'meal', 'both'];
+    let cleanFoodType = food_dist_type || null;
+    if (cleanFoodType && !validFoodTypes.includes(cleanFoodType)) cleanFoodType = null;
+
+    const result = await pool.query(
+      `UPDATE resources 
+         SET name = $1, slug = $2, address = $3, city = $4, state = $5, zip_code = $6, 
+             phone = $7, website = $8, email = $9, hours = $10, primary_category_id = $11, 
+             is_active = $12, eligibility_requirements = $13, appointment_required = $14,
+             walk_ins_accepted = $15, food_dist_type = $16,
+             food_dist_onsite = $17, service_area = $18, 
+             languages_spoken = $19
+         WHERE id = $20
+         RETURNING id, name, email, languages_spoken`,
+      [
+        name, slug, address, city, state, zip_code,
+        phone, website, email, hours, primary_category_id,
+        is_active, eligibility_requirements, appointment_required,
+        walk_ins_accepted, cleanFoodType,
+        food_dist_onsite, service_area,
+        languagesArray, // Use formatted array
+        id
+      ]
+    );
+
+    // Update location if geocoding needed (client can pass coords, but for now specific updates)
+    // Or we could trigger geocoding here. For MVP, we assume editing text fields.
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error updating resource:', error);
+    res.status(500).json({ error: 'Failed to update' });
+  }
+});
+
 app.post('/api/admin/promote', async (req, res) => {
   try {
     const { email } = req.body;
@@ -936,8 +1062,31 @@ app.post('/api/admin/promote', async (req, res) => {
   }
 });
 
+app.post('/api/admin/demote', async (req, res) => {
+  try {
+    const { email } = req.body;
+    // Prevent demoting the last admin or specific super-admins if needed, but for now just allow it.
+    await pool.query('UPDATE users SET is_admin = FALSE WHERE email = $1', [email]);
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error demoting user:', error);
+    res.status(500).json({ error: 'Failed to demote user' });
+  }
+});
+
+app.get('/api/admin/list', async (req, res) => {
+  try {
+    const result = await pool.query('SELECT id, email, display_name, last_login FROM users WHERE is_admin = TRUE ORDER BY email');
+    res.json({ admins: result.rows });
+  } catch (error) {
+    console.error('Error listing admins:', error);
+    res.status(500).json({ error: 'Failed to list admins' });
+  }
+});
+
 // Export for Firebase Functions
 exports.api = functions.https.onRequest(app);
+exports.app = app; // Export for testing
 
 // Start server locally (only if not running as a Cloud Function)
 if (process.env.NODE_ENV !== 'production' && require.main === module) {

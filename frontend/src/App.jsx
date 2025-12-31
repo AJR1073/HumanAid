@@ -101,6 +101,12 @@ function App() {
 
   const fetchResources = async () => {
     setLoading(true);
+    // Don't fetch if showing favorites (handled by handleShowFavorites)
+    if (selectedCategory === 'favorites') {
+      setLoading(false);
+      return;
+    }
+
     try {
       let url;
       if (searchQuery) {
@@ -307,6 +313,104 @@ function App() {
     await toggleFavorite(resource.id);
   };
 
+  const handleShowFavorites = async () => {
+    if (!user) {
+      setShowAuthModal(true);
+      return;
+    }
+
+    // Toggle: If currently viewing favorites, clear it to show all
+    if (selectedCategory === 'favorites') {
+      setSelectedCategory(null);
+      setSearchInfo('Showing all resources');
+      setTimeout(() => setSearchInfo(null), 3000);
+      return;
+    }
+
+    if (favorites.length === 0) {
+      setResources([]);
+      setSearchInfo("You haven't saved any favorites yet.");
+      setTimeout(() => setSearchInfo(null), 4000);
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const idsParam = favorites.join(',');
+      const response = await fetch(`${API_BASE}/resources?ids=${idsParam}&limit=1000`);
+      if (!response.ok) throw new Error('Failed to fetch resources');
+
+      const data = await response.json();
+      const allResources = data.resources || [];
+      // No need to filter by ID again since backend did it, but good to be safe or just use as is
+      const favResources = allResources;
+      let finalResources = favResources;
+
+      // Filter by location if set
+      if (currentLocation) {
+        finalResources = favResources.filter(r => {
+          if (!r.latitude || !r.longitude) return false;
+          const dist = calculateDistance(
+            currentLocation.lat,
+            currentLocation.lon,
+            r.latitude,
+            r.longitude
+          );
+          // Add distance property to resource for display
+          r.distance = dist;
+          return dist <= (currentLocation.radius || 50);
+        });
+
+        // Sort by distance
+        finalResources.sort((a, b) => a.distance - b.distance);
+
+        setSearchInfo(`Showing ${finalResources.length} favorite resources near ${currentLocation.placeName || 'your location'}`);
+
+        // Keep map centered on current location
+        setViewState({
+          ...viewState,
+          latitude: currentLocation.lat,
+          longitude: currentLocation.lon,
+          zoom: 11
+        });
+      } else {
+        setSearchInfo(`Showing ${finalResources.length} favorite resources`);
+
+        // Auto-center map on favorites (Global View)
+        const validResources = finalResources.filter(r => r.latitude && r.longitude);
+        if (validResources.length > 0) {
+          if (validResources.length === 1) {
+            setViewState({
+              ...viewState,
+              latitude: validResources[0].latitude,
+              longitude: validResources[0].longitude,
+              zoom: 13
+            });
+          } else {
+            // Calculate average center
+            const avgLat = validResources.reduce((sum, r) => sum + r.latitude, 0) / validResources.length;
+            const avgLon = validResources.reduce((sum, r) => sum + r.longitude, 0) / validResources.length;
+
+            setViewState({
+              ...viewState,
+              latitude: avgLat,
+              longitude: avgLon,
+              zoom: 9
+            });
+          }
+        }
+      }
+
+      setResources(finalResources);
+      setSelectedCategory('favorites'); // Special category
+    } catch (error) {
+      console.error('Error fetching favorites:', error);
+      setMapError('Failed to load favorites.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   // Simple Routing for Admin
   if (mode === 'admin') {
     return (
@@ -366,6 +470,8 @@ function App() {
             <UserMenu
               onLoginClick={() => setShowAuthModal(true)}
               onSubmitClick={() => setShowSubmitModal(true)}
+              onFavoritesClick={handleShowFavorites}
+              isFavoritesView={selectedCategory === 'favorites'}
               onAdminClick={() => setMode('admin')}
             />
             <button className="menu-btn" onClick={() => setMenuOpen(!menuOpen)}>
