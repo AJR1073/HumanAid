@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { Check, X, Shield, Clock, MapPin, Phone, Globe, Mail } from 'lucide-react';
+import { Check, X, Shield, Clock, MapPin, Phone, Globe, Mail, BarChart2 } from 'lucide-react';
 import AdminResourceModal from './AdminResourceModal';
+import AnalyticsDashboard from './AnalyticsDashboard';
 
 const API_BASE = import.meta.env.VITE_API_URL || '/api';
 
@@ -9,10 +10,12 @@ const AdminDashboard = () => {
     const { user, isAdmin } = useAuth();
     const [submissions, setSubmissions] = useState([]);
     const [loading, setLoading] = useState(true);
-    const [activeTab, setActiveTab] = useState('submissions'); // 'submissions' | 'resources' | 'admins'
+    const [activeTab, setActiveTab] = useState('analytics'); // 'analytics' | 'submissions' | 'resources' | 'admins'
     const [resources, setResources] = useState([]); // Admin resources list
     const [resourceSearch, setResourceSearch] = useState('');
     const [missingZipOnly, setMissingZipOnly] = useState(false);
+    const [currentPage, setCurrentPage] = useState(1);
+    const [totalPages, setTotalPages] = useState(1);
     const [adminEmail, setAdminEmail] = useState('');
     const [promoteStatus, setPromoteStatus] = useState(null);
     const [admins, setAdmins] = useState([]); // List of current admins
@@ -47,9 +50,10 @@ const AdminDashboard = () => {
     const fetchResources = async () => {
         setLoading(true);
         try {
-            const res = await fetch(`${API_BASE}/admin/resources?search=${encodeURIComponent(resourceSearch)}&missing_zip=${missingZipOnly}`);
+            const res = await fetch(`${API_BASE}/admin/resources?page=${currentPage}&limit=20&search=${encodeURIComponent(resourceSearch)}&missing_zip=${missingZipOnly}`);
             const data = await res.json();
             setResources(data.resources || []);
+            setTotalPages(data.totalPages || 1);
         } catch (error) {
             console.error('Error fetching resources:', error);
         } finally {
@@ -77,7 +81,12 @@ const AdminDashboard = () => {
             if (activeTab === 'resources') fetchResources();
             if (activeTab === 'admins') fetchAdmins();
         }
-    }, [isAdmin, activeTab, resourceSearch, missingZipOnly]);
+    }, [isAdmin, activeTab, resourceSearch, missingZipOnly, currentPage]);
+
+    // Reset page when filters change
+    useEffect(() => {
+        setCurrentPage(1);
+    }, [resourceSearch, missingZipOnly]);
 
     const handleSaveResource = async (id, updatedData) => {
         const res = await fetch(`${API_BASE}/admin/resources/${id}`, {
@@ -152,28 +161,36 @@ const AdminDashboard = () => {
                 <h2>Admin Dashboard</h2>
                 <div className="admin-tabs">
                     <button
-                        className={activeTab === 'submissions' ? 'active' : ''}
+                        className={`tab-btn ${activeTab === 'analytics' ? 'active' : ''}`}
+                        onClick={() => setActiveTab('analytics')}
+                    >
+                        <BarChart2 size={18} /> Analytics
+                    </button>
+                    <button
+                        className={`tab-btn ${activeTab === 'submissions' ? 'active' : ''}`}
                         onClick={() => setActiveTab('submissions')}
                     >
-                        Submissions ({submissions.length})
+                        <Clock size={18} /> Pending ({submissions.length})
                     </button>
                     <button
-                        className={activeTab === 'resources' ? 'active' : ''}
+                        className={`tab-btn ${activeTab === 'resources' ? 'active' : ''}`}
                         onClick={() => setActiveTab('resources')}
                     >
-                        All Resources
+                        <Globe size={18} /> All Resources
                     </button>
                     <button
-                        className={activeTab === 'admins' ? 'active' : ''}
+                        className={`tab-btn ${activeTab === 'admins' ? 'active' : ''}`}
                         onClick={() => setActiveTab('admins')}
                     >
-                        Manage Admins
+                        <Shield size={18} /> Manage Admins
                     </button>
                 </div>
             </div>
 
             <div className="admin-content">
-                {activeTab === 'submissions' ? (
+                {activeTab === 'analytics' ? (
+                    <AnalyticsDashboard />
+                ) : activeTab === 'submissions' ? (
                     loading ? (
                         <div className="loading-spinner">Loading...</div>
                     ) : submissions.length === 0 ? (
@@ -235,45 +252,68 @@ const AdminDashboard = () => {
                                 Search by Resource Name, City, or 5-digit Zip Code.
                             </small>
                         </div>
+
                         {loading ? (
                             <div className="loading-spinner">Loading...</div>
                         ) : resources.length === 0 ? (
                             <div className="empty-state">No resources found</div>
                         ) : (
-                            <div className="submissions-grid">
-                                {resources.map(res => (
-                                    <div key={res.id} className="submission-card">
-                                        <div className="sub-header">
-                                            <h3>{res.name}</h3>
-                                            <span className={`status-badge ${res.is_active ? 'active' : 'inactive'}`}>
-                                                {res.is_active ? 'Active' : 'Inactive'}
-                                            </span>
-                                        </div>
-                                        <div className="sub-details">
-                                            <p><strong>Category:</strong> {res.category_name || res.primary_category_id}</p>
-                                            <p>{res.address}, {res.city}</p>
-                                            <div style={{ marginTop: '10px' }}>
-                                                <button
-                                                    className="edit-resource-btn"
-                                                    onClick={() => setEditingResource(res)}
-                                                    style={{
-                                                        width: '100%',
-                                                        padding: '0.5rem',
-                                                        background: '#3B82F6',
-                                                        color: 'white',
-                                                        border: 'none',
-                                                        borderRadius: '6px',
-                                                        cursor: 'pointer',
-                                                        fontWeight: '600'
-                                                    }}
-                                                >
-                                                    Edit / Fix
-                                                </button>
+                            <>
+                                <div className="submissions-grid">
+                                    {resources.map(res => (
+                                        <div key={res.id} className="submission-card">
+                                            <div className="sub-header">
+                                                <h3>{res.name}</h3>
+                                                <span className={`status-badge ${res.is_active ? 'active' : 'inactive'}`}>
+                                                    {res.is_active ? 'Active' : 'Inactive'}
+                                                </span>
+                                            </div>
+                                            <div className="sub-details">
+                                                <p><strong>Category:</strong> {res.category_name || res.primary_category_id}</p>
+                                                <p>{res.address}, {res.city}</p>
+                                                <div style={{ marginTop: '10px' }}>
+                                                    <button
+                                                        className="edit-resource-btn"
+                                                        onClick={() => setEditingResource(res)}
+                                                        style={{
+                                                            width: '100%',
+                                                            padding: '0.5rem',
+                                                            background: '#3B82F6',
+                                                            color: 'white',
+                                                            border: 'none',
+                                                            borderRadius: '6px',
+                                                            cursor: 'pointer',
+                                                            fontWeight: '600'
+                                                        }}
+                                                    >
+                                                        Edit / Fix
+                                                    </button>
+                                                </div>
                                             </div>
                                         </div>
-                                    </div>
-                                ))}
-                            </div>
+                                    ))}
+                                </div>
+                                {/* Pagination Controls */}
+                                <div className="pagination-controls" style={{ display: 'flex', justifyContent: 'center', gap: '1rem', marginTop: '2rem', paddingBottom: '2rem' }}>
+                                    <button
+                                        onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                                        disabled={currentPage === 1}
+                                        style={{ padding: '0.5rem 1rem', cursor: currentPage === 1 ? 'not-allowed' : 'pointer' }}
+                                    >
+                                        Previous
+                                    </button>
+                                    <span style={{ display: 'flex', alignItems: 'center' }}>
+                                        Page {currentPage} of {totalPages || 1}
+                                    </span>
+                                    <button
+                                        onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                                        disabled={currentPage >= totalPages}
+                                        style={{ padding: '0.5rem 1rem', cursor: currentPage >= totalPages ? 'not-allowed' : 'pointer' }}
+                                    >
+                                        Next
+                                    </button>
+                                </div>
+                            </>
                         )}
                     </div>
                 ) : (

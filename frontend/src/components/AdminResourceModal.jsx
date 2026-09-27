@@ -23,7 +23,9 @@ const AdminResourceModal = ({ isOpen, onClose, resource, categories, onSave }) =
         food_dist_type: '',
         food_dist_onsite: false,
         service_area: '',
-        languages_spoken: ''
+        languages_spoken: '',
+        latitude: null,
+        longitude: null
     });
     const [scanning, setScanning] = useState(false);
     const [saving, setSaving] = useState(false);
@@ -49,7 +51,9 @@ const AdminResourceModal = ({ isOpen, onClose, resource, categories, onSave }) =
                 food_dist_type: resource.food_dist_type || '',
                 food_dist_onsite: resource.food_dist_onsite || false,
                 service_area: resource.service_area || '',
-                languages_spoken: Array.isArray(resource.languages_spoken) ? resource.languages_spoken.join(', ') : (resource.languages_spoken || '')
+                languages_spoken: Array.isArray(resource.languages_spoken) ? resource.languages_spoken.join(', ') : (resource.languages_spoken || ''),
+                latitude: resource.latitude || null,
+                longitude: resource.longitude || null
             });
         }
     }, [resource]);

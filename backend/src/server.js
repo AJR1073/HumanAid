@@ -418,10 +418,18 @@ app.get('/api/stats', async (req, res) => {
     const categoryCount = await pool.query('SELECT COUNT(*) FROM categories');
     const cityCount = await pool.query('SELECT COUNT(DISTINCT city) FROM resources WHERE is_active = true');
 
+    // New stats
+    const pendingCount = await pool.query("SELECT COUNT(*) FROM pending_submissions WHERE status = 'pending'");
+    const userCount = await pool.query('SELECT COUNT(*) FROM users');
+    const viewCount = await pool.query('SELECT SUM(view_count) as total FROM resources');
+
     res.json({
       resources: parseInt(resourceCount.rows[0].count),
       categories: parseInt(categoryCount.rows[0].count),
-      cities: parseInt(cityCount.rows[0].count)
+      cities: parseInt(cityCount.rows[0].count),
+      pending_submissions: parseInt(pendingCount.rows[0].count),
+      users: parseInt(userCount.rows[0].count),
+      total_views: parseInt(viewCount.rows[0].total || 0)
     });
   } catch (error) {
     console.error('Error fetching stats:', error);
@@ -958,7 +966,7 @@ app.get('/api/admin/resources', async (req, res) => {
     const conditions = [];
 
     if (search) {
-      conditions.push(`(r.name ILIKE $${params.length + 1} OR r.city ILIKE $${params.length + 1} OR r.zip_code ILIKE $${params.length + 1} OR r.address ILIKE $${params.length + 1})`);
+      conditions.push(`(r.name ILIKE $${params.length + 1} OR r.city ILIKE $${params.length + 1} OR r.zip_code ILIKE $${params.length + 1} OR r.address ILIKE $${params.length + 1} OR r.website ILIKE $${params.length + 1} OR r.description ILIKE $${params.length + 1})`);
       params.push(`%${search}%`);
     }
 
@@ -1003,22 +1011,26 @@ app.put('/api/admin/resources/:id', async (req, res) => {
     const {
       name, address, city, state, zip_code, phone, website, email, hours, primary_category_id, is_active,
       eligibility_requirements, appointment_required, walk_ins_accepted,
-      food_dist_type, food_dist_onsite, service_area, languages_spoken
+      food_dist_type, food_dist_onsite, service_area, languages_spoken,
+      description, latitude, longitude
     } = req.body;
 
     // Generate new slug if name changes (optional, but good practice)
     let slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
     slug = `${slug}-${id.slice(-4)}`; // Use ID segment to keep stable
 
-    // Format languages_spoken as array literal or null
+    // Format languages_spoken as array literal or null (escape quotes)
     const languagesArray = languages_spoken
-      ? `{${languages_spoken.split(',').map(s => `"${s.trim()}"`).join(',')}}`
+      ? `{${languages_spoken.split(',').map(s => `"${s.trim().replace(/"/g, '\\"')}"`).join(',')}}`
       : null;
 
     // Ensure food_dist_type is valid or null
     const validFoodTypes = ['boxes', 'meal', 'both'];
     let cleanFoodType = food_dist_type || null;
     if (cleanFoodType && !validFoodTypes.includes(cleanFoodType)) cleanFoodType = null;
+
+    // Force boolean for onsite
+    const cleanOnsite = food_dist_onsite === true || food_dist_onsite === 'true';
 
     const result = await pool.query(
       `UPDATE resources 
@@ -1027,16 +1039,19 @@ app.put('/api/admin/resources/:id', async (req, res) => {
              is_active = $12, eligibility_requirements = $13, appointment_required = $14,
              walk_ins_accepted = $15, food_dist_type = $16,
              food_dist_onsite = $17, service_area = $18, 
-             languages_spoken = $19
-         WHERE id = $20
+             languages_spoken = $19, description = $20, latitude = $21, longitude = $22
+         WHERE id = $23
          RETURNING id, name, email, languages_spoken`,
       [
         name, slug, address, city, state, zip_code,
         phone, website, email, hours, primary_category_id,
         is_active, eligibility_requirements, appointment_required,
         walk_ins_accepted, cleanFoodType,
-        food_dist_onsite, service_area,
+        cleanOnsite, service_area,
         languagesArray, // Use formatted array
+        description || null,
+        latitude || null,
+        longitude || null,
         id
       ]
     );
@@ -1095,3 +1110,5 @@ if (process.env.NODE_ENV !== 'production' && require.main === module) {
     console.log(`📍 http://localhost:${port}/api/health`);
   });
 }
+
+// Force redeploy

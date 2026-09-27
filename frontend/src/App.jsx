@@ -1,7 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Helmet, HelmetProvider } from 'react-helmet-async';
 import Map, { Marker, Popup } from 'react-map-gl';
-import { MapPin, Search, Menu, X, Heart, Users, Navigation, MapPinned } from 'lucide-react';
+import { MapPin, Search, Menu, X, Heart, Users, Navigation, MapPinned, Filter } from 'lucide-react';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import './App.css';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
@@ -11,6 +11,7 @@ import SubmitResourceModal from './components/SubmitResourceModal';
 import RegistrationPromo from './components/RegistrationPromo';
 import AdminDashboard from './components/AdminDashboard';
 import StructuredData from './components/StructuredData';
+import GlobalSearch from './components/GlobalSearch';
 
 const API_BASE = import.meta.env.VITE_API_URL || '/api';
 const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN;
@@ -23,6 +24,7 @@ function App() {
   const [selectedResource, setSelectedResource] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [zipCode, setZipCode] = useState('');
+  const [showFilters, setShowFilters] = useState(true); // Mobile filter toggle
   const [loading, setLoading] = useState(true);
   const [menuOpen, setMenuOpen] = useState(false);
   const [mapError, setMapError] = useState(null);
@@ -55,6 +57,34 @@ function App() {
     fetchCategories();
     fetchStats();
   }, [mode]);
+
+  // Ref for Mapbox instance
+  const mapRef = useRef(null);
+
+  // Force map resize when filters toggle (to fix grey gap)
+  useEffect(() => {
+    const startTime = Date.now();
+    const duration = 400; // slightly longer than CSS transition
+
+    const animateResize = () => {
+      if (mapRef.current) {
+        mapRef.current.resize();
+      }
+
+      if (Date.now() - startTime < duration) {
+        requestAnimationFrame(animateResize);
+      }
+    };
+
+    // Start resize loop
+    requestAnimationFrame(animateResize);
+
+    // Final check
+    setTimeout(() => {
+      if (mapRef.current) mapRef.current.resize();
+    }, duration);
+
+  }, [showFilters]);
 
   // Load resources when category or location changes
   useEffect(() => {
@@ -203,6 +233,30 @@ function App() {
     } finally {
       setLoading(false);
     }
+  };
+
+
+  // Handle selection from Global Search
+  const handleGlobalSelect = (resource) => {
+    if (resource.latitude && resource.longitude) {
+      setViewState({
+        ...viewState,
+        latitude: resource.latitude,
+        longitude: resource.longitude,
+        zoom: 15
+      });
+      setCurrentLocation({
+        lat: resource.latitude,
+        lon: resource.longitude,
+        radius: 20
+      });
+    }
+    setResources([resource]);
+    setSearchInfo(`Found: ${resource.name}`);
+
+    // On mobile, scroll to map/resource
+    const mapElement = document.querySelector('.map-container');
+    if (mapElement) mapElement.scrollIntoView({ behavior: 'smooth' });
   };
 
   const useMyLocation = () => {
@@ -480,8 +534,35 @@ function App() {
           </div>
         </div>
 
+        {/* Mobile Global Search - Visible on Mobile Only via CSS */}
+        {/* Mobile Global Search - Visible on Mobile Only via CSS */}
+        <div className="mobile-global-search">
+          <div style={{ flex: 1 }}>
+            <GlobalSearch onResourceSelect={handleGlobalSelect} />
+          </div>
+          <button
+            className={`filter-toggle-btn ${showFilters ? 'active' : ''}`}
+            onClick={() => setShowFilters(!showFilters)}
+            style={{
+              background: showFilters ? '#e0f2fe' : 'white',
+              border: '1px solid #e2e8f0',
+              borderRadius: '12px',
+              padding: '0.75rem',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: '#3b82f6',
+              height: '46px',
+              width: '46px',
+              cursor: 'pointer'
+            }}
+          >
+            <Filter size={20} />
+          </button>
+        </div>
+
         {/* Search Bar */}
-        <div className="search-container">
+        <div className={`search-container ${!showFilters ? 'mobile-hidden' : ''}`}>
           <form onSubmit={handleSearch} className="search-bar">
             <Search className="search-icon" size={20} />
             <input
@@ -573,9 +654,10 @@ function App() {
           </aside>
 
           {/* Map */}
-          <div className="map-container">
+          <div className={`map-container ${!showFilters ? 'expanded' : ''}`}>
             {MAPBOX_TOKEN && !mapError ? (
               <Map
+                ref={mapRef}
                 {...viewState}
                 onMove={evt => setViewState(evt.viewState)}
                 mapStyle="mapbox://styles/mapbox/streets-v12"
