@@ -1,14 +1,15 @@
 // Authentication Context for HumanAid
-import { createContext, useContext, useState, useEffect } from 'react';
+import { createContext, useContext, useState, useEffect, useRef } from 'react';
 import {
   auth,
   onAuthStateChanged,
   signInWithGoogle,
   signInWithEmail,
   signUpWithEmail,
-  logOut
+  logOut,
+  requestEmailVerification
 } from '../firebase';
-const API_BASE = import.meta.env.VITE_API_URL || '/api';
+import { apiFetch, API_BASE } from '../api';
 
 const AuthContext = createContext(null);
 
@@ -27,88 +28,72 @@ export const AuthProvider = ({ children }) => {
   const [isAdmin, setIsAdmin] = useState(false);
   const [favorites, setFavorites] = useState([]);
 
-  // Sync User to Backend
-  const syncUser = async (user) => {
-    if (!user) return;
-    try {
-      console.log('Syncing user to:', `${API_BASE}/users/sync`);
-      const res = await fetch(`${API_BASE}/users/sync`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          uid: user.uid,
-          email: user.email,
-          displayName: user.displayName,
-          photoURL: user.photoURL
-        })
-      });
-      console.log('Sync response status:', res.status);
-      if (!res.ok) throw new Error(`Sync failed: ${res.statusText}`);
-
-      const data = await res.json();
-      console.log('Sync response data:', data);
-      if (data.isAdmin) setIsAdmin(true);
-    } catch (err) {
-      console.error('User sync failed:', err);
-    }
-  };
-
-  // Fetch Favorites
-  const fetchFavorites = async (uid) => {
-    if (!uid) return;
-    try {
-      const res = await fetch(`${API_BASE}/favorites?uid=${uid}`);
-      const data = await res.json();
-      if (data.favorites) setFavorites(data.favorites.map(id => Number(id)));
-    } catch (err) {
-      console.error('Fetch favorites failed:', err);
-    }
-  };
+  const authRevision = useRef(0);
+  const pendingFavorites = useRef(new Set());
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (user) => {
-      setUser(user);
-      if (user) {
-        // Sync user and fetch favorites
-        await syncUser(user);
-        await fetchFavorites(user.uid);
-      } else {
-        setFavorites([]);
-        setIsAdmin(false);
+    let active = true;
+    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+      const revision = ++authRevision.current;
+      setUser(currentUser);
+      setLoading(true);
+      setFavorites([]);
+      setIsAdmin(false);
+      if (!currentUser) {
+        setLoading(false);
+        return;
       }
-      setLoading(false);
-    });
 
-    return () => unsubscribe();
+      try {
+        const [profileResponse, favoritesResponse] = await Promise.all([
+          apiFetch(`${API_BASE}/users/sync`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              displayName: currentUser.displayName,
+              photoURL: currentUser.photoURL
+            })
+          }, currentUser),
+          apiFetch(`${API_BASE}/favorites`, {}, currentUser)
+        ]);
+        if (!profileResponse.ok || !favoritesResponse.ok) throw new Error('Account sync failed.');
+        const [profile, saved] = await Promise.all([profileResponse.json(), favoritesResponse.json()]);
+        if (active && revision === authRevision.current) {
+          setIsAdmin(profile.isAdmin === true);
+          setFavorites((saved.favorites || []).map(Number));
+        }
+      } catch {
+        if (active && revision === authRevision.current) setError('Could not load your account. Please sign in again.');
+      } finally {
+        if (active && revision === authRevision.current) setLoading(false);
+      }
+    });
+    return () => { active = false; authRevision.current += 1; unsubscribe(); };
   }, []);
 
   const toggleFavorite = async (resourceId) => {
-    if (!user) return false;
-
-    // Ensure ID is a number to prevent type mismatch (string vs int)
     const id = Number(resourceId);
-    if (isNaN(id)) {
-      console.error('Invalid resource ID:', resourceId);
-      return false;
-    }
-
-    // Optimistic Update
+    if (!user || !Number.isSafeInteger(id) || id < 1 || pendingFavorites.current.has(id)) return false;
+    const revision = authRevision.current;
     const isFav = favorites.includes(id);
-    const newFavs = isFav ? favorites.filter(favId => favId !== id) : [...favorites, id];
-    setFavorites(newFavs);
-
+    pendingFavorites.current.add(id);
+    setFavorites(previous => isFav ? previous.filter(saved => saved !== id) : [...previous, id]);
     try {
-      await fetch(`${API_BASE}/favorites`, {
+      const response = await apiFetch(`${API_BASE}/favorites`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ uid: user.uid, resourceId: id })
-      });
+        body: JSON.stringify({ resourceId: id })
+      }, user);
+      if (!response.ok) throw new Error('Favorite update failed.');
       return !isFav;
-    } catch (err) {
-      console.error('Toggle favorite failed:', err);
-      // Revert on error
-      setFavorites(favorites);
-      return isFav; // Return original state
+    } catch {
+      if (revision === authRevision.current) {
+        setFavorites(previous => isFav ? [...new Set([...previous, id])] : previous.filter(saved => saved !== id));
+        setError('Could not update your saved resources. Please try again.');
+      }
+      return isFav;
+    } finally {
+      pendingFavorites.current.delete(id);
     }
   };
 
@@ -158,6 +143,7 @@ export const AuthProvider = ({ children }) => {
     loginWithEmail,
     register,
     logout,
+    verifyEmail: requestEmailVerification,
     clearError,
     isAuthenticated: !!user,
     isAdmin, // Now real state

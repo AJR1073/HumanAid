@@ -1,0 +1,42 @@
+{
+  "format": "humanaid.ndp211-v2.synthetic.v1",
+  "records": [
+    {
+      "id": "synthetic-organization-1",
+      "entity_type": "organization",
+      "source_last_modified_at": "2026-09-01T12:00:00Z",
+      "deleted": false,
+      "fields": { "name": "Synthetic Community Support", "description": "Fictional organization used only in offline tests." },
+      "relationships": {}
+    },
+    {
+      "id": "synthetic-service-1",
+      "entity_type": "service",
+      "source_last_modified_at": null,
+      "deleted": false,
+      "fields": {
+        "name": "Synthetic Food Assistance",
+        "description": "Fictional service; no real availability or eligibility is represented.",
+        "eligibility_description": "Synthetic eligibility wording for review.",
+        "application_process": "Synthetic application instructions."
+      },
+      "relationships": { "organization_id": "synthetic-organization-1" }
+    },
+    {
+      "id": "synthetic-location-1",
+      "entity_type": "location",
+      "source_last_modified_at": null,
+      "deleted": false,
+      "fields": { "name": "Synthetic Community Center" },
+      "relationships": { "organization_id": "synthetic-organization-1" }
+    },
+    {
+      "id": "synthetic-retired-service",
+      "entity_type": "service",
+      "source_last_modified_at": "2026-09-02T12:00:00Z",
+      "deleted": true,
+      "fields": {},
+      "relationships": {}
+    }
+  ]
+}

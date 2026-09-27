@@ -1,8 +1,8 @@
+import { apiFetch, API_BASE } from '../api';
 // Resource Submission Form for HumanAid
 import { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:4000/api';
 
 const SubmitResourceModal = ({ isOpen, onClose, categories = [] }) => {
   const { user } = useAuth();
@@ -61,7 +61,7 @@ const SubmitResourceModal = ({ isOpen, onClose, categories = [] }) => {
     setScanError('');
 
     try {
-      const response = await fetch(`${API_BASE}/scan-url`, {
+      const response = await apiFetch(`${API_BASE}/scan-url`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -119,22 +119,20 @@ const SubmitResourceModal = ({ isOpen, onClose, categories = [] }) => {
     setErrorMessage('');
 
     try {
-      const response = await fetch(`${API_BASE}/submissions`, {
+      const response = await apiFetch(`${API_BASE}/submissions`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
           ...formData,
-          primaryCategoryId: formData.categoryId,
-          submittedBy: user?.email || 'anonymous',
-          submittedByName: user?.displayName || 'Anonymous',
-          submittedByUid: user?.uid || null
+          primaryCategoryId: formData.categoryId
         })
       });
 
       if (!response.ok) {
-        throw new Error('Failed to submit resource');
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || 'Failed to submit resource');
       }
 
       setSubmitStatus('success');

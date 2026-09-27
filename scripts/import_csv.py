@@ -167,9 +167,12 @@ def main():
         'port': args.db_port,
         'database': args.db_name,
         'user': args.db_user,
-        'password': args.db_password or os.environ.get('DB_PASSWORD', 'humanaid2025')
+        'password': args.db_password or os.environ.get('DB_PASSWORD')
     }
     
+    if not db_config['password']:
+        parser.error('DB_PASSWORD must be supplied through a secure environment')
+
     # Import resources
     importer = ResourceImporter(db_config)
     

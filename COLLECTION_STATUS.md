@@ -1,118 +1,90 @@
-# HumanAid Data Collection Status
+# HumanAid historical data collection notes
 
-**Last Updated:** 2025-11-25 8:35 PM - ALL COLLECTIONS COMPLETE! 🎉
+**Original observation date:** November 25, 2025, 8:35 PM
 
----
+**Status wording clarified:** September 27, 2026
 
-## 🎉 ALL COLLECTIONS COMPLETE!
+These are historical collection notes, not a current inventory or evidence of complete coverage. The reported counts below have not been recounted in this review. They describe different collection, import, and cleanup stages; some totals and geographic counts were not reconciled in the original notes.
 
-**MISSION ACCOMPLISHED!**
-- From 13 resources → **8,416 resources** in ONE EVENING!
-- 647x increase in database size
-- 95+ cities across Illinois & Missouri fully mapped
-- Small towns like Waterloo, IL now included
+Automated collection, duplicate detection, categorization, and AI cleanup do not establish human or provider verification, current service availability, or exhaustive coverage of Illinois or Missouri. No statewide completeness or verification claim is supported by these notes.
 
----
+## Reported collection observations
 
-## ✅ COMPLETED
+The original notes recorded growth from 13 resources to 8,416 before the later cleanup count, described at the time as approximately 647 times the starting size. They mentioned records from 95 or more cities across Illinois and Missouri, including Waterloo, Illinois. These are historical observations about collected records, not counts of fully mapped cities.
 
-### Illinois Food Bank Collection - COMPLETE! 🎉
-- **Resources collected:** 5,094
-- **Imported to database:** 4,000 (1,094 duplicates skipped)
-- **Cities covered:** 55 cities across Illinois
-- **File:** `data/il_all_food_banks.csv`
-- **Completion time:** ~35 minutes
-- **Cost:** ~$50 (FREE with Google credit)
+### Illinois food bank collection
 
-### Rockford, IL - Full Resource Collection
-- **Resources collected:** 252
-- **Imported to database:** 226
-- **Categories:** Food, shelters, clinics, mental health, legal aid, job training, clothing
-- **File:** `data/rockford_food_banks.csv`
+- **Records reported collected:** 5,094
+- **Records reported imported:** 4,000, with 1,094 skipped as duplicates
+- **Reported collection geography:** 55 Illinois cities
+- **Recorded output file:** `data/il_all_food_banks.csv`
+- **Reported elapsed time:** approximately 35 minutes
+- **Original cost estimate:** approximately $50; no billing verification was recorded here
 
----
+### Rockford collection
 
-## 📊 FINAL DATABASE STATS
+- **Records reported collected:** 252
+- **Records reported imported:** 226
+- **Categories mentioned:** food, shelters, clinics, mental health, legal aid, job training, and clothing
+- **Recorded output file:** `data/rockford_food_banks.csv`
 
-- **Total resources:** 7,614 🚀 (cleaned - removed 802 non-relevant businesses, auto-categorized 847 resources, AI-validated)
-- **Categories:** 66 categories seeded
-- **Coverage:**
-  - 55 major Illinois cities
-  - 50 small Illinois towns (including Waterloo!)
-  - 40 Missouri cities
-  - **95+ cities total**
-- **Resource types:** Food banks, pantries, soup kitchens, distribution centers, outreach programs
-- **States:** Illinois & Missouri completely mapped
+These import counts describe reported batches. They do not establish that every relevant service in a city or state was collected, or that the records remain accurate.
 
----
+## Reported post-cleanup database observations
 
-## 📋 NEXT STEPS
+- **Resource count:** 7,614
+- **Automated cleanup notes:** 802 records removed as non-relevant businesses; 847 records automatically categorized; an AI assessment was also reported
+- **Category count:** 66 categories reported seeded
+- **Resource types mentioned:** food banks, pantries, soup kitchens, distribution centers, outreach programs
+- **Geographic counts recorded separately:** 55 major Illinois cities, 50 small Illinois towns, 40 Missouri cities, and a separate total described as 95 or more cities
 
-1. **When IL collection finishes (~8 PM):**
+The geographic figures may overlap or refer to different runs; the original notes do not establish a reconciled unique-city total. The resource totals also belong to different stages. Treat the AI assessment as automated output, not human or provider confirmation.
+
+## Archived workflow notes
+
+The original document mixed completion announcements with pending Illinois and Missouri tasks. Those labels were inconsistent, so no current completion state is inferred from them. The following commands preserve the historical workflow only. Review targets, data provenance, credentials, cost, and script behavior before any separately authorized run; this document is not authorization to collect or import data.
+
+1. Import an Illinois collection file:
+
    ```bash
    cd /home/admx/CascadeProjects/HumanAid/scripts
    python import_csv.py --file ../data/il_all_food_banks.csv
    ```
 
-2. **Then collect Missouri:**
+2. Collect Missouri records:
+
    ```bash
-   export GOOGLE_PLACES_API_KEY=AIzaSyCyvRU3w1nq1OWz586j0tyKnS_XVwqi0jE
+   : "${GOOGLE_PLACES_API_KEY:?Load the key through a secure environment}"
    python collect_all_food_banks.py --state MO --output-dir ../data
    ```
 
-3. **Import Missouri:**
+3. Import a Missouri collection file:
+
    ```bash
    python import_csv.py --file ../data/mo_all_food_banks.csv
    ```
 
----
+## Historical cost and planning notes
 
-## 💰 COST TRACKING
+The original notes reported $0.41 for 24 Rockford queries, estimated $50–70 for 3,000–4,000 Illinois queries, and separately listed a running total of $0.41. These figures were not reconciled as a final bill. The assumed $200 monthly credit and $199.59 remaining balance were historical planning assumptions, not current pricing, available credit, or a guarantee of free collection.
 
-- **Rockford collection:** $0.41 (24 queries)
-- **Illinois collection (estimated):** ~$50-70 (3,000-4,000 queries)
-- **Total so far:** ~$0.41
-- **Google free credit:** $200/month
-- **Remaining:** $199.59
+The archived targets were 252 Rockford records, approximately 500 Illinois food banks, approximately 400 Missouri food banks, and 1,000 or more total records by the end of that week. They describe the original plan and do not supersede the reported batch counts above or establish current collection status.
 
----
+## Historical diagnostic commands
 
-## 🎯 GOALS
-
-- [x] Rockford: 252 resources ✅
-- [ ] Illinois: ~500 food banks (in progress)
-- [ ] Missouri: ~400 food banks (pending)
-- [ ] **TOTAL TARGET:** 1,000+ resources by end of week
-
----
-
-## 🔍 CHECK COLLECTION STATUS
-
-To see progress of the running collection:
+These commands were recorded for checking a collection process and an output file. No currently running process or scheduled completion is asserted.
 
 ```bash
-# Check if still running
 ps aux | grep collect_all_food_banks
-
-# View recent output (if available)
 tail -20 /home/admx/CascadeProjects/HumanAid/data/il_all_food_banks.csv
 ```
 
----
+The historical restart example was:
 
-## 📞 TROUBLESHOOTING
-
-**If collection stops:**
 ```bash
 cd /home/admx/CascadeProjects/HumanAid/scripts
-export GOOGLE_PLACES_API_KEY=AIzaSyCyvRU3w1nq1OWz586j0tyKnS_XVwqi0jE
+: "${GOOGLE_PLACES_API_KEY:?Load the key through a secure environment}"
 python collect_all_food_banks.py --state IL --output-dir ../data
 ```
 
-**Check API quota:**
-- Go to: https://console.cloud.google.com/apis/dashboard
-- View usage statistics
-
----
-
-**Collection will complete automatically. Check back in ~1 hour!** ⏰
+Check actual API usage and billing in the authorized Google Cloud account before any new collection. No new collection, import, dataset verification, or billing check was performed for this documentation update.

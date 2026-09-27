@@ -1,7 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Helmet, HelmetProvider } from 'react-helmet-async';
 import Map, { Marker, Popup } from 'react-map-gl';
-import { MapPin, Search, Menu, X, Heart, Users, Navigation, MapPinned } from 'lucide-react';
+import { MapPin, Search, Menu, X, Heart, Users, Navigation, MapPinned, Filter } from 'lucide-react';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import './App.css';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
@@ -11,11 +11,14 @@ import SubmitResourceModal from './components/SubmitResourceModal';
 import RegistrationPromo from './components/RegistrationPromo';
 import AdminDashboard from './components/AdminDashboard';
 import StructuredData from './components/StructuredData';
+import GlobalSearch from './components/GlobalSearch';
+import { apiFetch } from './api';
+import ReportInfoModal from './components/ReportInfoModal';
 
 const API_BASE = import.meta.env.VITE_API_URL || '/api';
 const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN;
 
-function App() {
+export function App() {
   const [mode, setMode] = useState('need_help'); // 'need_help' or 'want_help'
   const [resources, setResources] = useState([]);
   const [categories, setCategories] = useState([]);
@@ -23,6 +26,7 @@ function App() {
   const [selectedResource, setSelectedResource] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [zipCode, setZipCode] = useState('');
+  const [showFilters, setShowFilters] = useState(true); // Mobile filter toggle
   const [loading, setLoading] = useState(true);
   const [menuOpen, setMenuOpen] = useState(false);
   const [mapError, setMapError] = useState(null);
@@ -33,6 +37,8 @@ function App() {
   const [showStats, setShowStats] = useState(false); // For mobile stats toggle
   const [showAuthModal, setShowAuthModal] = useState(false); // Authentication modal
   const [showSubmitModal, setShowSubmitModal] = useState(false); // Resource submission modal
+  const [showReportModal, setShowReportModal] = useState(false); // Report issue modal
+  const [reportingResource, setReportingResource] = useState(null);
 
   // SEO Info
   const pageTitle = mode === 'need_help'
@@ -56,19 +62,40 @@ function App() {
     fetchStats();
   }, [mode]);
 
+  // Ref for Mapbox instance
+  const mapRef = useRef(null);
+
+  // Force map resize when filters toggle (to fix grey gap)
+  useEffect(() => {
+    const startTime = Date.now();
+    let animationFrame;
+    const duration = 400; // slightly longer than CSS transition
+
+    const animateResize = () => {
+      if (mapRef.current) {
+        mapRef.current.resize();
+      }
+
+      if (Date.now() - startTime < duration) {
+        animationFrame = requestAnimationFrame(animateResize);
+      }
+    };
+
+    // Start resize loop
+    animationFrame = requestAnimationFrame(animateResize);
+
+    // Final check
+    const finalResize = setTimeout(() => {
+      if (mapRef.current) mapRef.current.resize();
+    }, duration);
+    return () => { cancelAnimationFrame(animationFrame); clearTimeout(finalResize); };
+
+  }, [showFilters]);
+
   // Load resources when category or location changes
   useEffect(() => {
     fetchResources();
   }, [selectedCategory, currentLocation]);
-
-  // Debug: Log when resources change
-  useEffect(() => {
-    console.log('[HumanAid] Resources state updated:', {
-      total: resources.length,
-      withCoords: resources.filter(r => r.latitude && r.longitude).length,
-      sample: resources.slice(0, 2).map(r => ({ id: r.id, name: r.name, lat: r.latitude, lon: r.longitude }))
-    });
-  }, [resources]);
 
   const fetchStats = async () => {
     try {
@@ -203,6 +230,40 @@ function App() {
     } finally {
       setLoading(false);
     }
+  };
+
+
+  const trackView = async (id) => {
+    try {
+      await apiFetch(`${API_BASE}/resources/${id}/view`, { method: 'POST' });
+    } catch (err) {
+      console.error('Error tracking view:', err);
+    }
+  };
+
+  // Handle selection from Global Search
+  const handleGlobalSelect = (resource) => {
+    // GlobalSearch records the selection once through the analytics endpoint.
+
+    if (resource.latitude && resource.longitude) {
+      setViewState({
+        ...viewState,
+        latitude: resource.latitude,
+        longitude: resource.longitude,
+        zoom: 15
+      });
+      setCurrentLocation({
+        lat: resource.latitude,
+        lon: resource.longitude,
+        radius: 20
+      });
+    }
+    setResources([resource]);
+    setSearchInfo(`Found: ${resource.name}`);
+
+    // On mobile, scroll to map/resource
+    const mapElement = document.querySelector('.map-container');
+    if (mapElement) mapElement.scrollIntoView({ behavior: 'smooth' });
   };
 
   const useMyLocation = () => {
@@ -474,14 +535,43 @@ function App() {
               isFavoritesView={selectedCategory === 'favorites'}
               onAdminClick={() => setMode('admin')}
             />
-            <button className="menu-btn" onClick={() => setMenuOpen(!menuOpen)}>
+            <button className="menu-btn" aria-label="Toggle menu" onClick={() => setMenuOpen(!menuOpen)}>
               {menuOpen ? <X /> : <Menu />}
             </button>
           </div>
         </div>
 
+        {/* Mobile Global Search - Visible on Mobile Only via CSS */}
+        {/* Mobile Global Search - Visible on Mobile Only via CSS */}
+        <div className="mobile-global-search">
+          <div style={{ flex: 1 }}>
+            <GlobalSearch onResourceSelect={handleGlobalSelect} />
+          </div>
+          <button
+            className={`filter-toggle-btn ${showFilters ? 'active' : ''}`}
+            aria-label="Toggle search filters"
+            aria-expanded={showFilters}
+            onClick={() => setShowFilters(!showFilters)}
+            style={{
+              background: showFilters ? '#e0f2fe' : 'white',
+              border: '1px solid #e2e8f0',
+              borderRadius: '12px',
+              padding: '0.75rem',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: '#3b82f6',
+              height: '46px',
+              width: '46px',
+              cursor: 'pointer'
+            }}
+          >
+            <Filter size={20} />
+          </button>
+        </div>
+
         {/* Search Bar */}
-        <div className="search-container">
+        <div className={`search-container ${!showFilters ? 'mobile-hidden' : ''}`}>
           <form onSubmit={handleSearch} className="search-bar">
             <Search className="search-icon" size={20} />
             <input
@@ -573,9 +663,10 @@ function App() {
           </aside>
 
           {/* Map */}
-          <div className="map-container">
+          <div className={`map-container ${!showFilters ? 'expanded' : ''}`}>
             {MAPBOX_TOKEN && !mapError ? (
               <Map
+                ref={mapRef}
                 {...viewState}
                 onMove={evt => setViewState(evt.viewState)}
                 mapStyle="mapbox://styles/mapbox/streets-v12"
@@ -595,6 +686,7 @@ function App() {
                       latitude={resource.latitude}
                       onClick={(e) => {
                         e.originalEvent.stopPropagation();
+                        trackView(resource.id);
                         setSelectedResource(resource);
                       }}
                     >
@@ -649,6 +741,27 @@ function App() {
                             Visit Website
                           </a>
                         )}
+                        <button
+                          className="report-btn"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setReportingResource(selectedResource);
+                            setShowReportModal(true);
+                          }}
+                          style={{
+                            background: 'none',
+                            border: 'none',
+                            color: '#6B7280',
+                            fontSize: '0.75rem',
+                            cursor: 'pointer',
+                            marginTop: '0.5rem',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '4px'
+                          }}
+                        >
+                          <small>🚩 Report Issue</small>
+                        </button>
                       </div>
                     </div>
                   </Popup>
@@ -790,6 +903,12 @@ function App() {
         isOpen={showSubmitModal}
         onClose={() => setShowSubmitModal(false)}
         categories={categories}
+      />
+
+      <ReportInfoModal
+        isOpen={showReportModal}
+        onClose={() => setShowReportModal(false)}
+        resource={reportingResource}
       />
 
 
