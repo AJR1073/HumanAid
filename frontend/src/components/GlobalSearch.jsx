@@ -22,27 +22,30 @@ const GlobalSearch = ({ onLocationSelect, onResourceSelect, currentMode = 'need_
         return () => document.removeEventListener('mousedown', handleClickOutside);
     }, []);
 
-    const handleSearch = async (value) => {
-        setQuery(value);
-        if (value.length < 2) {
+    useEffect(() => {
+        if (query.trim().length < 2) {
             setResults([]);
+            setLoading(false);
             return;
         }
-
+        let active = true;
+        const controller = new AbortController();
         setLoading(true);
         setIsOpen(true);
-
-        try {
-            // Search resources
-            const res = await fetch(`${API_BASE}/search?q=${encodeURIComponent(value)}&limit=8`);
-            const data = await res.json();
-            setResults(data.results || []);
-        } catch (error) {
-            console.error('Search error:', error);
-        } finally {
-            setLoading(false);
-        }
-    };
+        const timer = setTimeout(async () => {
+            try {
+                const res = await fetch(`${API_BASE}/search?q=${encodeURIComponent(query)}&limit=8`, { signal: controller.signal });
+                if (!res.ok) throw new Error('Search unavailable.');
+                const data = await res.json();
+                if (active) setResults(data.results || []);
+            } catch (error) {
+                if (active && error.name !== 'AbortError') setResults([]);
+            } finally {
+                if (active) setLoading(false);
+            }
+        }, 250);
+        return () => { active = false; clearTimeout(timer); controller.abort(); };
+    }, [query]);
 
     const handleSelect = (result) => {
         setQuery('');
@@ -77,12 +80,12 @@ const GlobalSearch = ({ onLocationSelect, onResourceSelect, currentMode = 'need_
                 <input
                     type="text"
                     value={query}
-                    onChange={(e) => handleSearch(e.target.value)}
+                    onChange={(e) => setQuery(e.target.value)}
                     placeholder="Search resources, cities, or support..."
                     onFocus={() => query.length >= 2 && setIsOpen(true)}
                 />
                 {query && (
-                    <button className="clear-search-btn" onClick={clearSearch}>
+                    <button className="clear-search-btn" aria-label="Clear search" onClick={clearSearch}>
                         <X size={16} />
                     </button>
                 )}
@@ -97,6 +100,14 @@ const GlobalSearch = ({ onLocationSelect, onResourceSelect, currentMode = 'need_
                             <div
                                 key={result.id}
                                 className="search-result-item"
+                                role="button"
+                                tabIndex={0}
+                                onKeyDown={event => {
+                                    if (event.key === 'Enter' || event.key === ' ') {
+                                        event.preventDefault();
+                                        handleSelect(result);
+                                    }
+                                }}
                                 onClick={() => handleSelect(result)}
                             >
                                 <div className="result-icon">

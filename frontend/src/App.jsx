@@ -18,7 +18,7 @@ import ReportInfoModal from './components/ReportInfoModal';
 const API_BASE = import.meta.env.VITE_API_URL || '/api';
 const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN;
 
-function App() {
+export function App() {
   const [mode, setMode] = useState('need_help'); // 'need_help' or 'want_help'
   const [resources, setResources] = useState([]);
   const [categories, setCategories] = useState([]);
@@ -68,6 +68,7 @@ function App() {
   // Force map resize when filters toggle (to fix grey gap)
   useEffect(() => {
     const startTime = Date.now();
+    let animationFrame;
     const duration = 400; // slightly longer than CSS transition
 
     const animateResize = () => {
@@ -76,17 +77,18 @@ function App() {
       }
 
       if (Date.now() - startTime < duration) {
-        requestAnimationFrame(animateResize);
+        animationFrame = requestAnimationFrame(animateResize);
       }
     };
 
     // Start resize loop
-    requestAnimationFrame(animateResize);
+    animationFrame = requestAnimationFrame(animateResize);
 
     // Final check
-    setTimeout(() => {
+    const finalResize = setTimeout(() => {
       if (mapRef.current) mapRef.current.resize();
     }, duration);
+    return () => { cancelAnimationFrame(animationFrame); clearTimeout(finalResize); };
 
   }, [showFilters]);
 
@@ -533,7 +535,7 @@ function App() {
               isFavoritesView={selectedCategory === 'favorites'}
               onAdminClick={() => setMode('admin')}
             />
-            <button className="menu-btn" onClick={() => setMenuOpen(!menuOpen)}>
+            <button className="menu-btn" aria-label="Toggle menu" onClick={() => setMenuOpen(!menuOpen)}>
               {menuOpen ? <X /> : <Menu />}
             </button>
           </div>
@@ -547,6 +549,8 @@ function App() {
           </div>
           <button
             className={`filter-toggle-btn ${showFilters ? 'active' : ''}`}
+            aria-label="Toggle search filters"
+            aria-expanded={showFilters}
             onClick={() => setShowFilters(!showFilters)}
             style={{
               background: showFilters ? '#e0f2fe' : 'white',
