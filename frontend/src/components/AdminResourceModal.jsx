@@ -1,7 +1,6 @@
 import { apiFetch, API_BASE } from '../api';
 import { useState, useEffect } from 'react';
-import { X, Search, Globe, Save, Loader } from 'lucide-react';
-
+import { X, Search, Globe, Save, Loader, Check } from 'lucide-react';
 
 
 const AdminResourceModal = ({ isOpen, onClose, resource, categories, onSave }) => {
@@ -109,11 +108,14 @@ const AdminResourceModal = ({ isOpen, onClose, resource, categories, onSave }) =
         setSaving(true);
         try {
             await onSave(resource.id, formData);
-            onClose();
+            setSaving('success');
+            // Wait 1.5s then close
+            setTimeout(() => {
+                onClose();
+            }, 1500);
         } catch (error) {
             console.error('Failed to save:', error);
-            alert('Failed to save changes');
-        } finally {
+            alert(error.message || 'Failed to save changes');
             setSaving(false);
         }
     };
@@ -132,209 +134,229 @@ const AdminResourceModal = ({ isOpen, onClose, resource, categories, onSave }) =
                     <p>Update details for {formData.name}</p>
                 </div>
 
-                <form onSubmit={handleSubmit} className="resource-form">
-                    <div className="form-group-row">
+                {saving === 'success' ? (
+                    <div className="success-message" style={{ textAlign: 'center', padding: '3rem 1rem' }}>
+                        <div style={{
+                            background: '#dcfce7',
+                            color: '#166534',
+                            width: '80px',
+                            height: '80px',
+                            borderRadius: '50%',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            margin: '0 auto 1.5rem auto'
+                        }}>
+                            <Check size={48} strokeWidth={3} />
+                        </div>
+                        <h3 style={{ fontSize: '1.5rem', marginBottom: '0.5rem', color: '#166534' }}>Saved Successfully!</h3>
+                        <p style={{ color: '#666' }}>Your changes have been updated.</p>
+                    </div>
+                ) : (
+                    <form onSubmit={handleSubmit} className="resource-form">
+                        <div className="form-group-row">
+                            <div className="form-group">
+                                <label>Name <span style={{ color: '#ef4444' }}>*</span></label>
+                                <input
+                                    name="name"
+                                    value={formData.name}
+                                    onChange={handleChange}
+                                    required
+                                />
+                            </div>
+                            <div className="form-group checkbox-group">
+                                <label>
+                                    <input
+                                        type="checkbox"
+                                        name="is_active"
+                                        checked={formData.is_active}
+                                        onChange={handleChange}
+                                    />
+                                    Is Active
+                                </label>
+                            </div>
+                        </div>
+
                         <div className="form-group">
-                            <label>Name <span style={{ color: '#ef4444' }}>*</span></label>
-                            <input
-                                name="name"
-                                value={formData.name}
+                            <label>Website (for Auto-fill)</label>
+                            <div className="input-with-action">
+                                <input
+                                    name="website"
+                                    value={formData.website}
+                                    onChange={handleChange}
+                                    placeholder="https://..."
+                                />
+                                <button
+                                    type="button"
+                                    className="scan-btn"
+                                    onClick={handleScan}
+                                    disabled={scanning || !formData.website}
+                                >
+                                    {scanning ? <Loader className="spin" size={16} /> : <Globe size={16} />}
+                                    {scanning ? 'Scanning...' : 'Re-Scan'}
+                                </button>
+                            </div>
+                        </div>
+
+                        <div className="form-group-row">
+                            <div className="form-group">
+                                <label>Address</label>
+                                <input name="address" value={formData.address} onChange={handleChange} />
+                            </div>
+                            <div className="form-group">
+                                <label>City <span style={{ color: '#ef4444' }}>*</span></label>
+                                <input name="city" value={formData.city} onChange={handleChange} required />
+                            </div>
+                        </div>
+
+                        <div className="form-group-row">
+                            <div className="form-group">
+                                <label>State <span style={{ color: '#ef4444' }}>*</span></label>
+                                <input name="state" value={formData.state} onChange={handleChange} maxLength={2} required />
+                            </div>
+                            <div className="form-group">
+                                <label>Zip Code</label>
+                                <input name="zip_code" value={formData.zip_code} onChange={handleChange} />
+                            </div>
+                        </div>
+
+                        <div className="form-group">
+                            <label>Category <span style={{ color: '#ef4444' }}>*</span></label>
+                            <select
+                                name="primary_category_id"
+                                value={formData.primary_category_id}
                                 onChange={handleChange}
                                 required
-                            />
-                        </div>
-                        <div className="form-group checkbox-group">
-                            <label>
-                                <input
-                                    type="checkbox"
-                                    name="is_active"
-                                    checked={formData.is_active}
-                                    onChange={handleChange}
-                                />
-                                Is Active
-                            </label>
-                        </div>
-                    </div>
-
-                    <div className="form-group">
-                        <label>Website (for Auto-fill)</label>
-                        <div className="input-with-action">
-                            <input
-                                name="website"
-                                value={formData.website}
-                                onChange={handleChange}
-                                placeholder="https://..."
-                            />
-                            <button
-                                type="button"
-                                className="scan-btn"
-                                onClick={handleScan}
-                                disabled={scanning || !formData.website}
                             >
-                                {scanning ? <Loader className="spin" size={16} /> : <Globe size={16} />}
-                                {scanning ? 'Scanning...' : 'Re-Scan'}
-                            </button>
-                        </div>
-                    </div>
-
-                    <div className="form-group-row">
-                        <div className="form-group">
-                            <label>Address</label>
-                            <input name="address" value={formData.address} onChange={handleChange} />
-                        </div>
-                        <div className="form-group">
-                            <label>City <span style={{ color: '#ef4444' }}>*</span></label>
-                            <input name="city" value={formData.city} onChange={handleChange} required />
-                        </div>
-                    </div>
-
-                    <div className="form-group-row">
-                        <div className="form-group">
-                            <label>State <span style={{ color: '#ef4444' }}>*</span></label>
-                            <input name="state" value={formData.state} onChange={handleChange} maxLength={2} required />
-                        </div>
-                        <div className="form-group">
-                            <label>Zip Code</label>
-                            <input name="zip_code" value={formData.zip_code} onChange={handleChange} />
-                        </div>
-                    </div>
-
-                    <div className="form-group">
-                        <label>Category <span style={{ color: '#ef4444' }}>*</span></label>
-                        <select
-                            name="primary_category_id"
-                            value={formData.primary_category_id}
-                            onChange={handleChange}
-                            required
-                        >
-                            <option value="">Select Category</option>
-                            {categories.map(cat => (
-                                <option key={cat.id} value={cat.id}>{cat.name}</option>
-                            ))}
-                        </select>
-                    </div>
-
-                    <div className="form-group">
-                        <label>Hours</label>
-                        <input name="hours" value={formData.hours} onChange={handleChange} placeholder="e.g. Mon-Fri 9am-5pm" />
-                    </div>
-
-                    <hr style={{ margin: '1.5rem 0', borderColor: '#e5e7eb' }} />
-                    <h3 style={{ fontSize: '1.1rem', fontWeight: 600, marginBottom: '1rem', color: '#374151' }}>Operational Details</h3>
-
-                    <div className="form-group">
-                        <label>Eligibility Requirements</label>
-                        <textarea
-                            name="eligibility_requirements"
-                            value={formData.eligibility_requirements}
-                            onChange={handleChange}
-                            placeholder="e.g. Must reside in 62298, Income verification needed"
-                            rows={2}
-                        />
-                    </div>
-
-                    <div className="form-group">
-                        <label>Service Area</label>
-                        <input
-                            name="service_area"
-                            value={formData.service_area}
-                            onChange={handleChange}
-                            placeholder="e.g. Madison County"
-                        />
-                    </div>
-
-                    <div className="form-group">
-                        <label>Languages Spoken</label>
-                        <input
-                            name="languages_spoken"
-                            value={formData.languages_spoken}
-                            onChange={handleChange}
-                            placeholder="English, Spanish"
-                        />
-                    </div>
-
-                    <div className="form-group-row" style={{ marginTop: '1rem' }}>
-                        <div className="form-group checkbox-group" style={{ justifyContent: 'flex-start' }}>
-                            <label>
-                                <input
-                                    type="checkbox"
-                                    name="appointment_required"
-                                    checked={formData.appointment_required}
-                                    onChange={handleChange}
-                                />
-                                Appointment Required
-                            </label>
-                        </div>
-                        <div className="form-group checkbox-group" style={{ justifyContent: 'flex-start' }}>
-                            <label>
-                                <input
-                                    type="checkbox"
-                                    name="walk_ins_accepted"
-                                    checked={formData.walk_ins_accepted}
-                                    onChange={handleChange}
-                                />
-                                Walk-ins Accepted
-                            </label>
-                        </div>
-                    </div>
-
-                    <h4 style={{ fontSize: '0.95rem', fontWeight: 600, marginTop: '1rem', marginBottom: '0.5rem', color: '#4b5563' }}>Food Pantry Specifics</h4>
-                    <div className="form-group-row">
-                        <div className="form-group">
-                            <label>Distribution Type</label>
-                            <select
-                                name="food_dist_type"
-                                value={formData.food_dist_type}
-                                onChange={handleChange}
-                            >
-                                <option value="">N/A</option>
-                                <option value="boxes">Boxes</option>
-                                <option value="meal">Hot Meal</option>
-                                <option value="both">Both</option>
+                                <option value="">Select Category</option>
+                                {categories.map(cat => (
+                                    <option key={cat.id} value={cat.id}>{cat.name}</option>
+                                ))}
                             </select>
                         </div>
-                        <div className="form-group checkbox-group">
-                            <label>
-                                <input
-                                    type="checkbox"
-                                    name="food_dist_onsite"
-                                    checked={formData.food_dist_onsite}
+
+                        <div className="form-group">
+                            <label>Hours</label>
+                            <input name="hours" value={formData.hours} onChange={handleChange} placeholder="e.g. Mon-Fri 9am-5pm" />
+                        </div>
+
+                        <hr style={{ margin: '1.5rem 0', borderColor: '#e5e7eb' }} />
+                        <h3 style={{ fontSize: '1.1rem', fontWeight: 600, marginBottom: '1rem', color: '#374151' }}>Operational Details</h3>
+
+                        <div className="form-group">
+                            <label>Eligibility Requirements</label>
+                            <textarea
+                                name="eligibility_requirements"
+                                value={formData.eligibility_requirements}
+                                onChange={handleChange}
+                                placeholder="e.g. Must reside in 62298, Income verification needed"
+                                rows={2}
+                            />
+                        </div>
+
+                        <div className="form-group">
+                            <label>Service Area</label>
+                            <input
+                                name="service_area"
+                                value={formData.service_area}
+                                onChange={handleChange}
+                                placeholder="e.g. Madison County"
+                            />
+                        </div>
+
+                        <div className="form-group">
+                            <label>Languages Spoken</label>
+                            <input
+                                name="languages_spoken"
+                                value={formData.languages_spoken}
+                                onChange={handleChange}
+                                placeholder="English, Spanish"
+                            />
+                        </div>
+
+                        <div className="form-group-row" style={{ marginTop: '1rem' }}>
+                            <div className="form-group checkbox-group" style={{ justifyContent: 'flex-start' }}>
+                                <label>
+                                    <input
+                                        type="checkbox"
+                                        name="appointment_required"
+                                        checked={formData.appointment_required}
+                                        onChange={handleChange}
+                                    />
+                                    Appointment Required
+                                </label>
+                            </div>
+                            <div className="form-group checkbox-group" style={{ justifyContent: 'flex-start' }}>
+                                <label>
+                                    <input
+                                        type="checkbox"
+                                        name="walk_ins_accepted"
+                                        checked={formData.walk_ins_accepted}
+                                        onChange={handleChange}
+                                    />
+                                    Walk-ins Accepted
+                                </label>
+                            </div>
+                        </div>
+
+                        <h4 style={{ fontSize: '0.95rem', fontWeight: 600, marginTop: '1rem', marginBottom: '0.5rem', color: '#4b5563' }}>Food Pantry Specifics</h4>
+                        <div className="form-group-row">
+                            <div className="form-group">
+                                <label>Distribution Type</label>
+                                <select
+                                    name="food_dist_type"
+                                    value={formData.food_dist_type}
                                     onChange={handleChange}
-                                />
-                                On-site Distribution
-                            </label>
+                                >
+                                    <option value="">N/A</option>
+                                    <option value="boxes">Boxes</option>
+                                    <option value="meal">Hot Meal</option>
+                                    <option value="both">Both</option>
+                                </select>
+                            </div>
+                            <div className="form-group checkbox-group">
+                                <label>
+                                    <input
+                                        type="checkbox"
+                                        name="food_dist_onsite"
+                                        checked={formData.food_dist_onsite}
+                                        onChange={handleChange}
+                                    />
+                                    On-site Distribution
+                                </label>
+                            </div>
                         </div>
-                    </div>
-                    <hr style={{ margin: '1.5rem 0', borderColor: '#e5e7eb' }} />
+                        <hr style={{ margin: '1.5rem 0', borderColor: '#e5e7eb' }} />
 
-                    <div className="form-group-row">
+                        <div className="form-group-row">
+                            <div className="form-group">
+                                <label>Phone</label>
+                                <input name="phone" value={formData.phone} onChange={handleChange} />
+                            </div>
+                            <div className="form-group">
+                                <label>Email</label>
+                                <input name="email" value={formData.email} onChange={handleChange} placeholder="contact@example.org" />
+                            </div>
+                        </div>
+
                         <div className="form-group">
-                            <label>Phone</label>
-                            <input name="phone" value={formData.phone} onChange={handleChange} />
+                            <label>Description</label>
+                            <textarea
+                                name="description"
+                                value={formData.description}
+                                onChange={handleChange}
+                                rows={4}
+                            />
                         </div>
-                        <div className="form-group">
-                            <label>Email</label>
-                            <input name="email" value={formData.email} onChange={handleChange} placeholder="contact@example.org" />
+
+                        <div className="modal-actions">
+                            <button type="button" className="cancel-btn" onClick={onClose}>Cancel</button>
+                            <button type="submit" className="submit-btn" disabled={saving === true}>
+                                {saving === true ? 'Saving...' : 'Save Changes'}
+                            </button>
                         </div>
-                    </div>
-
-                    <div className="form-group">
-                        <label>Description</label>
-                        <textarea
-                            name="description"
-                            value={formData.description}
-                            onChange={handleChange}
-                            rows={4}
-                        />
-                    </div>
-
-                    <div className="modal-actions">
-                        <button type="button" className="cancel-btn" onClick={onClose}>Cancel</button>
-                        <button type="submit" className="submit-btn" disabled={saving}>
-                            {saving ? 'Saving...' : 'Save Changes'}
-                        </button>
-                    </div>
-                </form>
+                    </form>
+                )}
             </div>
 
             {/* Minimal Styles for this modal (can move to css) */}
@@ -406,7 +428,7 @@ const AdminResourceModal = ({ isOpen, onClose, resource, categories, onSave }) =
                 .spin { animation: spin 1s linear infinite; }
                 @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
             `}</style>
-        </div>
+        </div >
     );
 };
 

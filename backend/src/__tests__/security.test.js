@@ -2,7 +2,8 @@ const request = require('supertest');
 const { app, db, poolQuery, verifyIdToken, fetchPublicHtml } = require('../../test/helpers');
 const restricted = [
   ['get', '/api/admin/resources'], ['put', '/api/admin/resources/1'], ['post', '/api/admin/promote'],
-  ['post', '/api/admin/demote'], ['get', '/api/admin/list'],
+  ['post', '/api/admin/demote'], ['get', '/api/admin/list'], ['get', '/api/admin/reports'],
+  ['post', '/api/admin/reports/1/resolve'], ['post', '/api/admin/cleanup-junk'], ['post', '/api/admin/auto-categorize'],
   ['get', '/api/admin/analytics/views'], ['get', '/api/admin/analytics/realtime'],
   ['get', '/api/submissions'], ['get', '/api/submissions/pending'], ['patch', '/api/submissions/1']
 ];

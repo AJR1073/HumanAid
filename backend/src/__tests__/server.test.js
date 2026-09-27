@@ -68,7 +68,13 @@ describe('Public API and input hardening', () => {
     await user(request(app).post('/api/submissions')).send({ ...submission, submittedBy: 'b@example.test' }).expect(403);
     expect(db).not.toHaveBeenCalled();
   });
-
+  test('preserves anonymous reports with validated issue types', async () => {
+    await request(app).post('/api/resources/1/reports').send({ issue_type: 'closed', description: 'Closed', contact_email: '' }).expect(200);
+    expect(db).toHaveBeenCalledWith(expect.stringContaining('INSERT INTO resource_reports'), ['1', 'closed', 'Closed', null]);
+    db.mockClear();
+    await request(app).post('/api/resources/1/reports').send({ issue_type: 'invalid' }).expect(400);
+    expect(db).not.toHaveBeenCalled();
+  });
   test('public resource detail excludes unapproved and inactive records', async () => {
     await request(app).get('/api/resources/1').expect(404);
     expect(db.mock.calls[0][0]).toContain("r.approval_status = 'approved'");

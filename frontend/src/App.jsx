@@ -13,6 +13,7 @@ import AdminDashboard from './components/AdminDashboard';
 import StructuredData from './components/StructuredData';
 import GlobalSearch from './components/GlobalSearch';
 import { apiFetch } from './api';
+import ReportInfoModal from './components/ReportInfoModal';
 
 const API_BASE = import.meta.env.VITE_API_URL || '/api';
 const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN;
@@ -36,6 +37,8 @@ function App() {
   const [showStats, setShowStats] = useState(false); // For mobile stats toggle
   const [showAuthModal, setShowAuthModal] = useState(false); // Authentication modal
   const [showSubmitModal, setShowSubmitModal] = useState(false); // Resource submission modal
+  const [showReportModal, setShowReportModal] = useState(false); // Report issue modal
+  const [reportingResource, setReportingResource] = useState(null);
 
   // SEO Info
   const pageTitle = mode === 'need_help'
@@ -734,6 +737,27 @@ function App() {
                             Visit Website
                           </a>
                         )}
+                        <button
+                          className="report-btn"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setReportingResource(selectedResource);
+                            setShowReportModal(true);
+                          }}
+                          style={{
+                            background: 'none',
+                            border: 'none',
+                            color: '#6B7280',
+                            fontSize: '0.75rem',
+                            cursor: 'pointer',
+                            marginTop: '0.5rem',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '4px'
+                          }}
+                        >
+                          <small>🚩 Report Issue</small>
+                        </button>
                       </div>
                     </div>
                   </Popup>
@@ -875,6 +899,12 @@ function App() {
         isOpen={showSubmitModal}
         onClose={() => setShowSubmitModal(false)}
         categories={categories}
+      />
+
+      <ReportInfoModal
+        isOpen={showReportModal}
+        onClose={() => setShowReportModal(false)}
+        resource={reportingResource}
       />
 
 

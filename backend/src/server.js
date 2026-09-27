@@ -856,7 +856,7 @@ app.get('/api/submissions/pending', ...adminOnly, async (req, res) => {
 
 app.get('/api/admin/resources', validate(schemas.adminResources, 'query'), async (req, res) => {
   try {
-    const { page = 1, limit = 20, search = '', missing_zip = 'false' } = req.query;
+    const { page = 1, limit = 20, search = '', missing_zip = 'false', category = '' } = req.query;
     const offset = (page - 1) * limit;
 
     let query = `
@@ -870,6 +870,11 @@ app.get('/api/admin/resources', validate(schemas.adminResources, 'query'), async
     if (search) {
       conditions.push(`(r.name ILIKE $${params.length + 1} OR r.city ILIKE $${params.length + 1} OR r.zip_code ILIKE $${params.length + 1} OR r.address ILIKE $${params.length + 1} OR r.website ILIKE $${params.length + 1} OR r.description ILIKE $${params.length + 1})`);
       params.push(`%${search}%`);
+    }
+
+    if (category) {
+      conditions.push(`r.primary_category_id = $${params.length + 1}`);
+      params.push(category);
     }
 
     if (missing_zip === 'true') {
@@ -1040,6 +1045,44 @@ app.post('/api/resources/:id/view', trackingLimit, async (req, res) => {
   }
 });
 
+// Submit a resource report
+app.post('/api/resources/:id/reports', verifyFirebaseToken, mutationLimit, validate(schemas.report), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { issue_type, description, contact_email } = req.body;
+
+    // Basic validation
+    if (!issue_type) return res.status(400).json({ error: 'Issue type is required' });
+
+    await pool.query(
+      'INSERT INTO resource_reports (resource_id, issue_type, description, contact_email) VALUES ($1, $2, $3, $4)',
+      [id, issue_type, description, contact_email]
+    );
+
+    res.json({ success: true, message: 'Report submitted successfully' });
+  } catch (error) {
+    console.error('Error submitting report:');
+    res.status(500).json({ error: 'Failed to submit report' });
+  }
+});
+
+// Admin: Get all reports
+app.get('/api/admin/reports', async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT rr.*, r.name as resource_name, r.city, r.state
+      FROM resource_reports rr
+      LEFT JOIN resources r ON rr.resource_id = r.id
+      WHERE rr.status = 'pending'
+      ORDER BY rr.created_at DESC
+    `);
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Error fetching reports:');
+    res.status(500).json({ error: 'Failed to fetch reports' });
+  }
+});
+
 // Get single resource by ID (Public)
 app.get('/api/resources/:id', async (req, res) => {
   try {
@@ -1064,6 +1107,199 @@ app.get('/api/resources/:id', async (req, res) => {
   }
 });
 
+// Admin: Resolve report
+app.post('/api/admin/reports/:id/resolve', validate(schemas.resolution), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status, resolution_notes } = req.body; // status: 'resolved' or 'dismissed'
+
+    if (!['resolved', 'dismissed'].includes(status)) {
+      return res.status(400).json({ error: 'Invalid status' });
+    }
+
+
+    const result = await pool.query(
+      "UPDATE resource_reports SET status = $1, resolved_at = CURRENT_TIMESTAMP WHERE id = $2 AND status = 'pending' RETURNING id",
+      [status, id]
+    );
+
+    if (result.rowCount === 0) {
+      const existing = await pool.query('SELECT status FROM resource_reports WHERE id = $1', [id]);
+      if (existing.rowCount === 0) return res.status(404).json({ error: 'Report not found' });
+      return res.status(409).json({ error: 'Report has already been resolved' });
+    }
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error resolving report:');
+    res.status(500).json({ error: 'Failed to resolve report' });
+  }
+});
+
+// Cleanup Junk Resources (Admin)
+app.post('/api/admin/cleanup-junk', async (req, res) => {
+  let client;
+  let transactionOpen = false;
+  try {
+    const junkKeywords = [
+      'liquor', 'wine & spirits', 'tobacco', 'vape', 'smoke shop', 'cigar',
+      'casino', 'gaming', 'arcade', 'slot', 'betting', 'poker',
+      'gas station', 'fuel', 'convenience store', 'mart', 'market', // 'market' is risky but often junk in this dataset
+      'pizza', 'burger', 'taco', 'restaurant', 'grill', 'cafe', 'coffee', 'pub', 'bar', 'lounge',
+      'nail', 'salon', 'spa', 'massage', 'tattoo',
+      'storage', 'u-haul', 'rental', 'hotel', 'motel', 'inn',
+      'auto parts', 'tire', 'lube', 'car wash', 'collision', 'pre-owned',
+      'tax service', 'insurance', 'realty', 'real estate', 'bank', 'fcu', 'credit union' // Commercial banks
+    ];
+
+    // Whitelist keywords to PROTECT legitimate resources even if they contain junk words
+    const whitelist = [
+      'food pantry', 'food bank', 'ministry', 'church', 'chapel', 'temple',
+      'st.', 'saint', 'salvation army', 'goodwill', 'society', 'foundation', 'charity',
+      'action', 'community', 'outreach', 'mission', 'shelter', 'housing'
+    ];
+
+    client = await pool.connect();
+    await client.query('BEGIN');
+    transactionOpen = true;
+    const resourcesRes = await client.query('SELECT id, name, description FROM resources WHERE is_active = true');
+    const resources = resourcesRes.rows;
+    let deactivatedCount = 0;
+
+    for (const r of resources) {
+      const text = (r.name + ' ' + (r.description || '')).toLowerCase();
+
+      // Check whitelist first
+      if (whitelist.some(w => text.includes(w))) continue;
+
+      // Check junk keywords
+      if (junkKeywords.some(j => text.includes(j))) {
+        await client.query('UPDATE resources SET is_active = false WHERE id = $1', [r.id]);
+        deactivatedCount++;
+
+      }
+    }
+
+    await client.query('COMMIT');
+    transactionOpen = false;
+    res.json({ success: true, count: deactivatedCount, message: `Deactivated ${deactivatedCount} junk resources.` });
+  } catch (error) {
+    if (client && transactionOpen) {
+      try { await client.query('ROLLBACK'); } catch { /* preserve generic operation failure */ }
+    }
+    console.error('Error cleaning junk:');
+    res.status(500).json({ error: 'Failed to cleanup junk' });
+  } finally {
+    if (client) client.release();
+  }
+});
+
+// Auto-Categorize Resources (Admin)
+app.post('/api/admin/auto-categorize', async (req, res) => {
+  let client;
+  let transactionOpen = false;
+  try {
+    client = await pool.connect();
+    await client.query('BEGIN');
+    transactionOpen = true;
+    // 1. Fetch all categories to build map (slug -> id)
+    const catsRes = await client.query('SELECT id, slug FROM categories');
+    const slugToId = {};
+    catsRes.rows.forEach(c => slugToId[c.slug] = c.id);
+
+    // 2. Fetch all resources
+    const resourcesRes = await client.query('SELECT id, name, description, primary_category_id FROM resources WHERE is_active = true');
+    const resources = resourcesRes.rows;
+
+    // 3. Define Logic (Refined)
+    const categoryMap = {
+      // Specific High-Priority Matches
+      'substance-abuse-treatment': ['substance', 'addiction', 'detox', 'rehab', 'recovery', 'alcohol', 'drug', 'opioid', 'sober', 'aa', 'na'],
+      'veterans-services': ['veteran', 'military', 'va ', 'vfw', 'legion', 'soldier', 'armed forces', 'amvets'],
+      'senior-center': ['senior', 'elder', 'aging', 'retirement', '55+', 'golden years', 'adult day care'],
+      'emergency-shelters': ['homeless shelter', 'emergency housing', 'warming center', 'cooling center', 'mission', 'men\'s shelter', 'women\'s shelter'],
+      'family-shelters': ['family shelter', 'women and children', 'domestic violence', 'safe house'],
+      'childcare-assistance': ['child', 'daycare', 'preschool', 'kids', 'baby', 'early head start', 'after school'],
+
+      // Health
+      'mental-health-services': ['mental', 'counseling', 'therapy', 'suicide', 'crisis', 'depression', 'psychiatry', 'behavioral'],
+      'free-clinics': ['medical', 'health', 'clinic', 'doctor', 'care', 'hospital', 'urgent care', 'physician', 'nursing'],
+      'vision-care': ['vision', 'eye', 'glasses', 'optometry', 'blind', 'ophthalmology'],
+
+      // Food (Refined)
+      'hot-meals': ['hot meal', 'soup kitchen', 'dining room', 'community meal', 'supper', 'lunch'],
+      'food-banks': ['food bank', 'distribution center', 'warehouse'],
+      'food-pantries': ['food pantry', 'pantry', 'groceries', 'food box', 'emergency food', 'nutrition assistance'], // Removed 'market'
+
+      // New / Generic Categories (Lower Priority logic handled by order or overlap, but map is unordered object so assume simple score)
+      'religious-organizations': ['church', 'ministry', 'chapel', 'temple', 'synagogue', 'mosque', 'parish', 'cathedral', 'worship', 'faith', 'gospel', 'baptist', 'methodist', 'catholic', 'lutheran', 'presbyterian', 'episcopal', 'pentecostal'],
+      'government-services': ['department of', 'city of', 'county of', 'state of', 'township', 'village of', 'municipal', 'police', 'fire', 'secretary of state'],
+      'education-libraries': ['school', 'education', 'tutoring', 'literacy', 'ged', 'library', 'book', 'esl', 'english class'],
+      'community-services': ['community center', 'neighborhood center', 'rec center', 'outreach', 'resource center', 'community action', 'settlement house', 'united way', 'urban league'],
+
+      // Other
+      'free-legal-aid': ['legal', 'law', 'attorney', 'justice', 'court', 'eviction defense', 'civil rights'],
+      'job-training': ['job', 'career', 'employment', 'workforce', 'hiring', 'resume', 'vocational', 'skills'],
+      'recreation-fitness': ['recreation', 'fitness', 'gym', 'sports', 'park', 'youth club', 'boys and girls club', 'ymca', 'ywca', 'camp'],
+      'public-transit': ['transport', 'ride', 'bus', 'transit', 'shuttle', 'subway', 'metro'],
+      'clothing-closets': ['clothing', 'clothes', 'attire', 'wardrobe', 'closet', 'thrift store'],
+      'utility-assistance': ['utility', 'electric', 'gas', 'water', 'bill', 'heap', 'liheap', 'heating'],
+      'financial-assistance': ['financial', 'money', 'grant', 'loan', 'budget', 'rent assistance', 'rental assistance'],
+      'support-groups': ['support group', 'meeting', 'anon'],
+      'physical-disabilities': ['disability', 'disabled', 'wheelchair', 'mobility', 'handicap', 'accessibility'],
+      'developmental-disabilities': ['developmental', 'autism', 'special needs', 'intellectual disability', 'down syndrome']
+    };
+
+    let updatedCount = 0;
+
+    for (const r of resources) {
+      const text = (r.name + ' ' + (r.description || '')).toLowerCase();
+      let bestCategorySlug = '';
+      let maxScore = 0;
+
+      for (const [slug, keywords] of Object.entries(categoryMap)) {
+        let score = 0;
+        keywords.forEach(keyword => {
+          if (text.includes(keyword)) score++;
+        });
+
+        // Bonus for name match (stronger signal)
+        keywords.forEach(keyword => {
+          if (r.name.toLowerCase().includes(keyword)) score += 2;
+        });
+
+        if (score > maxScore) {
+          maxScore = score;
+          bestCategorySlug = slug;
+        }
+      }
+
+      // If we found a match and it's different and mapped
+      if (bestCategorySlug && slugToId[bestCategorySlug]) {
+        const newId = slugToId[bestCategorySlug];
+        if (newId !== r.primary_category_id) {
+          await client.query('UPDATE resources SET primary_category_id = $1 WHERE id = $2', [newId, r.id]);
+          updatedCount++;
+        }
+      }
+    }
+
+    await client.query('COMMIT');
+    transactionOpen = false;
+    res.json({ success: true, updated: updatedCount, message: `Re-categorized ${updatedCount} resources.` });
+  } catch (error) {
+    if (client && transactionOpen) {
+      try { await client.query('ROLLBACK'); } catch { /* preserve generic operation failure */ }
+    }
+    console.error('Error auto-categorizing:');
+    res.status(500).json({ error: 'Failed to auto-categorize' });
+  } finally {
+    if (client) client.release();
+  }
+});
+
+
+// Export for Firebase Functions
 // --- Analytics Endpoints ---
 
 // Track view/activity
@@ -1247,7 +1483,6 @@ app.use((error, req, res, next) => {
   return res.status(500).json({ error: 'Request could not be completed' });
 });
 
-// Export for Firebase Functions
 const { onRequest } = require('firebase-functions/v2/https');
 
 exports.api = onRequest({

@@ -1,5 +1,5 @@
 const request = require('supertest');
-const { app, db, getUser, clientQuery, clientRelease } = require('../../test/helpers');
+const { app, db, getUser, poolQuery, clientQuery, clientRelease } = require('../../test/helpers');
 
 const admin = (call) => call.set('Authorization', 'Bearer admin-token');
 
@@ -35,6 +35,108 @@ describe('Admin API feature regressions', () => {
     expect(db.mock.calls[0][1]).toEqual(expect.arrayContaining(['updated@example.test', 'Must be resident', 'boxes', ['English', 'Spanish']]));
   });
 
+  test('resolves a report', async () => {
+    db.mockResolvedValueOnce({ rows: [{ id: 3 }], rowCount: 1 });
+    const response = await admin(request(app).post('/api/admin/reports/3/resolve')).send({ status: 'resolved' });
+    expect(response.status).toBe(200);
+    expect(db).toHaveBeenCalledWith(expect.stringContaining("AND status = 'pending' RETURNING id"), ['resolved', '3']);
+  });
+
+  test('does not overwrite an already resolved report', async () => {
+    db.mockResolvedValueOnce({ rows: [], rowCount: 0 }).mockResolvedValueOnce({ rows: [{ status: 'resolved' }], rowCount: 1 });
+    await admin(request(app).post('/api/admin/reports/3/resolve')).send({ status: 'dismissed' }).expect(409);
+    expect(db.mock.calls[0][0]).toContain("AND status = 'pending'");
+    expect(db.mock.calls[1][0]).toContain('SELECT status FROM resource_reports');
+  });
+
+  test('distinguishes a missing report during resolution', async () => {
+    db.mockResolvedValueOnce({ rows: [], rowCount: 0 }).mockResolvedValueOnce({ rows: [], rowCount: 0 });
+    await admin(request(app).post('/api/admin/reports/999/resolve')).send({ status: 'resolved' }).expect(404);
+  });
+
+  test('does not accept caller-supplied reviewer identity', async () => {
+    await admin(request(app).post('/api/admin/reports/3/resolve'))
+      .send({ status: 'resolved', reviewer_uid: 'forged-user' }).expect(400);
+    expect(db).not.toHaveBeenCalled();
+  });
+
+  describe('cleanup junk transaction', () => {
+    test('commits a successful batch using only the acquired client', async () => {
+      clientQuery.mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({ rows: [{ id: 1, name: 'Liquor Store' }, { id: 2, name: 'Smoke Shop' }] })
+        .mockResolvedValueOnce({ rows: [], rowCount: 1 })
+        .mockResolvedValueOnce({ rows: [], rowCount: 1 })
+        .mockResolvedValueOnce({ rows: [] });
+      const response = await admin(request(app).post('/api/admin/cleanup-junk')).expect(200);
+      expect(response.body).toMatchObject({ success: true, count: 2 });
+      expect(clientQuery.mock.calls.map(([sql]) => sql)).toEqual([
+        'BEGIN', 'SELECT id, name, description FROM resources WHERE is_active = true',
+        'UPDATE resources SET is_active = false WHERE id = $1',
+        'UPDATE resources SET is_active = false WHERE id = $1', 'COMMIT'
+      ]);
+      expect(poolQuery).toHaveBeenCalledTimes(1); // admin authorization only
+      expect(clientRelease).toHaveBeenCalledTimes(1);
+    });
+
+    test('rolls back the whole batch after a later update fails', async () => {
+      clientQuery.mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({ rows: [{ id: 1, name: 'Liquor Store' }, { id: 2, name: 'Smoke Shop' }] })
+        .mockResolvedValueOnce({ rows: [], rowCount: 1 })
+        .mockRejectedValueOnce(new Error('synthetic-private-diagnostic'))
+        .mockResolvedValueOnce({ rows: [] });
+      const response = await admin(request(app).post('/api/admin/cleanup-junk')).expect(500);
+      expect(response.body).toEqual({ error: 'Failed to cleanup junk' });
+      expect(clientQuery).not.toHaveBeenCalledWith('COMMIT');
+      expect(clientQuery).toHaveBeenLastCalledWith('ROLLBACK');
+      expect(clientRelease).toHaveBeenCalledTimes(1);
+    });
+
+    test('commits an empty/no-op batch safely', async () => {
+      clientQuery.mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: [] });
+      const response = await admin(request(app).post('/api/admin/cleanup-junk')).expect(200);
+      expect(response.body).toMatchObject({ success: true, count: 0 });
+      expect(clientQuery).toHaveBeenLastCalledWith('COMMIT');
+      expect(clientRelease).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('auto-categorize transaction', () => {
+    const categoryRows = [{ id: 10, slug: 'substance-abuse-treatment' }];
+    const resourceRows = [
+      { id: 1, name: 'Recovery Center', description: '', primary_category_id: 99 },
+      { id: 2, name: 'Alcohol Support', description: '', primary_category_id: 99 }
+    ];
+
+    test('commits all category updates through one acquired client', async () => {
+      clientQuery.mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: categoryRows })
+        .mockResolvedValueOnce({ rows: resourceRows }).mockResolvedValueOnce({ rows: [], rowCount: 1 })
+        .mockResolvedValueOnce({ rows: [], rowCount: 1 })
+        .mockResolvedValueOnce({ rows: [] });
+      const response = await admin(request(app).post('/api/admin/auto-categorize')).expect(200);
+      expect(response.body).toMatchObject({ success: true, updated: 2 });
+      expect(clientQuery.mock.calls.map(([sql]) => sql)).toEqual([
+        'BEGIN', 'SELECT id, slug FROM categories',
+        'SELECT id, name, description, primary_category_id FROM resources WHERE is_active = true',
+        'UPDATE resources SET primary_category_id = $1 WHERE id = $2',
+        'UPDATE resources SET primary_category_id = $1 WHERE id = $2', 'COMMIT'
+      ]);
+      expect(poolQuery).toHaveBeenCalledTimes(1); // admin authorization only
+      expect(clientRelease).toHaveBeenCalledTimes(1);
+    });
+
+    test('rolls back and returns no partial-success result when an update fails', async () => {
+      clientQuery.mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: categoryRows })
+        .mockResolvedValueOnce({ rows: resourceRows }).mockResolvedValueOnce({ rows: [], rowCount: 1 })
+        .mockRejectedValueOnce(new Error('synthetic-private-diagnostic'))
+        .mockResolvedValueOnce({ rows: [] });
+      const response = await admin(request(app).post('/api/admin/auto-categorize')).expect(500);
+      expect(response.body).toEqual({ error: 'Failed to auto-categorize' });
+      expect(clientQuery).not.toHaveBeenCalledWith('COMMIT');
+      expect(clientQuery).toHaveBeenLastCalledWith('ROLLBACK');
+      expect(poolQuery).toHaveBeenCalledTimes(1); // admin authorization only
+      expect(clientRelease).toHaveBeenCalledTimes(1);
+    });
+  });
 
   test('records the verified reviewer for a submission', async () => {
     clientQuery.mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: [{ id: 9, status: 'pending' }] });
