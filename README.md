@@ -1,220 +1,98 @@
-# 🤝 HumanAid Platform
+# HumanAid
 
-> **Making it effortless for anyone, anywhere to find help or give help.**
+HumanAid helps people find local assistance through a map, resource search, and service information. The public site is [humanaidapp.org](https://humanaidapp.org).
 
-**🌐 Live Site:** [https://humanaidapp.org](https://humanaidapp.org)
+## Status as of September 27, 2026
 
-HumanAid is a comprehensive humanitarian assistance platform that connects people in need with local resources while empowering communities to donate, volunteer, and sponsor aid programs.
+**Sprint 0 changes are local and unreleased.** They must not be described as deployed security fixes. No production migration, credential rotation, routing change, push, or deployment is part of this sprint.
 
-## 🌟 Features
+The production site is unchanged by this local work. The current production request path remains Firebase Hosting to the Firebase Function `api`; the offline 211 adapter is not live.
 
-- **7,596+ Verified Resources**: Across 141 cities in Illinois & Missouri
-- **66+ Resource Categories**: Food, shelter, healthcare, legal aid, and more
-- **Interactive Map**: Find resources near you with geospatial search
-- **One-Tap Directions**: Get turn-by-turn navigation to any resource
-- **Distance-Based Search**: Automatically sorted by proximity
-- **Smart Search**: Full-text search with PostgreSQL + PostGIS
-- **AI-Validated Data**: Cleaned and categorized using AI validation
-- **Mobile-Optimized**: Responsive design with collapsible stats
-- **Secure & Fast**: HTTPS via Let's Encrypt, CDN via Cloudflare
-- **Future**: LLM chatbot, volunteer management, sponsorships
+| State | What is known |
+| --- | --- |
+| CURRENT — production observed | Firebase Hosting serves the frontend. Its relative `/api` requests reach Firebase Function `api`. Public Hosting and API health checks returned HTTP 200 during the audit. The serving JavaScript matched the local built asset and used relative API paths. |
+| CURRENT — application features present in source | Mapbox map, PostgreSQL/PostGIS resource search, categories, resource details, Firebase sign-in, favorites, submissions and review, administrator editing, and reporting. Source presence is not proof that every workflow or security change is live. |
+| LOCAL — preserved work and Sprint 0 | Mobile GlobalSearch and map resizing, AnalyticsDashboard, ReportInfoModal, administrator enhancements, backend scripts, tests, security hardening, and an offline NDP 211 V2 skeleton with synthetic fixtures. The [Sprint 0 report](docs/SPRINT_0_LOCAL_REPORT.md) records recovery and checks. |
+| NEXT | Referral Desk: a reviewed workflow for staff to help someone find and follow up on suitable services. |
+| PLANNED | 211 integration, verification agent, provider claiming, AI navigator, and HumanAid Intelligence. These are proposals, not available integrations or verified production capabilities. |
 
-## 🚀 Quick Start
+Resource counts, category counts, and previous AI cleanup results are historical dataset observations. They do not establish that every listing has been verified by a person or provider. Do not describe the whole directory as verified.
 
-### Prerequisites
+## Current architecture
 
-- **Node.js** (v18+)
-- **PostgreSQL** (v14+) with PostGIS extension
-- **Mapbox Account** (free tier works)
+```text
+Browser → Firebase Hosting → /api/** → Firebase Function api
+                                           ↓
+                                  PostgreSQL / Cloud SQL
+                                  with PostGIS
+```
 
-### 1. Clone & Install
+The configured Firebase project is `gocasino-1ecc9`. `firebase.json` serves `frontend/dist` and rewrites `/api/**` to the function. A separate Cloud Run service named `humanaid-api` also responded to a health check; the current frontend does not select its URL. Its deployed revision and configuration have not been established as equivalent to this working tree.
+
+Firebase Authentication is already integrated; it is not a future feature. Sprint 0 adds server-side verification and authorization around the existing workflows. Browser Firebase and Mapbox configuration are public-client configuration; server credentials belong outside Git. See [SECURITY.md](SECURITY.md) and [SECURITY_ROTATION_REQUIRED.md](SECURITY_ROTATION_REQUIRED.md).
+
+## Local development
+
+Use the Node version declared in `backend/package.json` and the lockfiles. The existing Dockerfile is a separate deployment artifact and must be reviewed before any future container release.
+
+From the repository root:
 
 ```bash
-git clone <repository-url>
-cd HumanAid
-
-# Install backend dependencies
-cd backend
-npm install
-
-# Install frontend dependencies
-cd ../frontend
-npm install
+npm ci --prefix backend
+npm ci --prefix frontend
+cp -n backend/.env.example backend/.env
+cp -n frontend/.env.example frontend/.env
 ```
 
-### 2. Database Setup
+The copy commands preserve existing environment files. Fill in new ignored environment files with local development settings. Never copy production credentials into a shared command, issue, test fixture, or documentation. Use `VITE_API_URL=/api` so Vite's development proxy sends requests to the local backend on port 4000. Frontend environment values are included in the browser build and must not contain server secrets.
+
+Configure Firebase explicitly for the intended environment with `VITE_FIREBASE_API_KEY`, `VITE_FIREBASE_AUTH_DOMAIN`, `VITE_FIREBASE_PROJECT_ID`, and `VITE_FIREBASE_APP_ID`. All four are required; missing or partial configuration is rejected, and no default production Firebase project is selected. Use an isolated development project for local sign-in and registration. Keep actual configuration in ignored environment files; documentation and test examples must use sanitized placeholders or synthetic values.
+
+The backend uses `DB_USER`, `DB_PASSWORD`, `DB_NAME`, and either `DB_HOST`/`DB_PORT` or `INSTANCE_CONNECTION_NAME`. Other relevant controls include `DB_POOL_MAX`, `DB_SSL_MODE`, `DB_SSL_CA`, `FIREBASE_PROJECT_ID`/`GOOGLE_CLOUD_PROJECT`, and production `CORS_ORIGINS`; consult the current `.env.example` files and security documentation for exact requirements. A remote database in nonproduction requires an explicit `ALLOW_REMOTE_DATABASE=true`; do not enable it merely to make a local test pass.
+
+Provision an isolated local PostgreSQL/PostGIS database with synthetic data. **`database/schema.sql` is a historical baseline, not a complete migration to the current runtime schema.** Later scripts and local features reference additional columns and tables, including `pending_submissions`, `resource_reports`, `users.is_admin`, and `users.photo_url`. Review and consolidate schema changes before use. Do not run historical repair, collection, or initialization scripts against production as a setup shortcut. The [database role runbook](docs/DATABASE_APP_ROLE_RUNBOOK.md) lists these compatibility checks.
+
+Start the two development processes in separate terminals:
 
 ```bash
-cd database
-
-# Make init script executable
-chmod +x init-db.sh
-
-# Run database initialization
-./init-db.sh
-
-# OR manually:
-psql -U postgres -c "CREATE DATABASE humanaid;"
-psql -U postgres -d humanaid -f schema.sql
-psql -U postgres -d humanaid -f seeds/01_categories.sql
-psql -U postgres -d humanaid -f seeds/02_sample_resources.sql
+npm run dev --prefix backend
 ```
-
-### 3. Environment Configuration
-
-**Backend** (`backend/.env`):
-```bash
-cp backend/.env.example backend/.env
-
-# Edit backend/.env with your settings:
-DB_HOST=localhost
-DB_PORT=5432
-DB_NAME=humanaid
-DB_USER=postgres
-DB_PASSWORD=your_password
-PORT=4000
-```
-
-**Frontend** (`frontend/.env`):
-```bash
-cp frontend/.env.example frontend/.env
-
-# Edit frontend/.env with your settings:
-VITE_API_URL=http://localhost:4000/api
-VITE_MAPBOX_TOKEN=your_mapbox_token_here
-```
-
-> 📝 **Get a Mapbox token**: Visit [mapbox.com](https://www.mapbox.com/) and sign up for a free account
-
-### 4. Run the Application
-
-**Terminal 1 - Backend**:
-```bash
-cd backend
-npm run dev
-```
-
-**Terminal 2 - Frontend**:
-```bash
-cd frontend
-npm run dev
-```
-
-The application will open at: **http://localhost:3000**
-
-## 📁 Project Structure
-
-```
-HumanAid/
-├── frontend/                 # React frontend
-│   ├── src/
-│   │   ├── components/       # React components
-│   │   ├── hooks/            # Custom hooks
-│   │   ├── services/         # API services
-│   │   ├── utils/            # Helper functions
-│   │   ├── App.jsx           # Main application
-│   │   └── main.jsx          # Entry point
-│   ├── public/               # Static assets
-│   └── package.json
-├── backend/                  # Node.js/Express API
-│   ├── src/
-│   │   ├── routes/           # API routes
-│   │   ├── controllers/      # Route handlers
-│   │   ├── models/           # Database models
-│   │   └── server.js         # Server entry
-│   └── package.json
-├── database/                 # Database files
-│   ├── schema.sql            # Database schema
-│   ├── seeds/                # Seed data
-│   └── init-db.sh            # Setup script
-├── scripts/                  # Automation scripts
-├── PRD.md                    # Product requirements
-├── CATEGORIES.md             # Category definitions
-└── CHANGELOG.md              # Development log
-```
-
-## 🗺️ Tech Stack
-
-### Frontend
-- **React 18** with Vite
-- **Mapbox GL JS** for interactive maps
-- **Tailwind CSS** for styling
-- **Lucide React** for icons
-- **Axios** for API calls
-
-### Backend
-- **Node.js** with Express
-- **PostgreSQL** with PostGIS
-- **Firebase** (planned for auth)
-- **OpenAI** (planned for chatbot)
-
-## 📊 Database Schema
-
-Core tables:
-- `categories` - 66+ assistance categories
-- `resources` - Humanitarian aid locations
-- `users` - User accounts (optional for browsing)
-- `sponsorships` - Business/individual sponsors
-- `donations` - Donation tracking
-- `volunteer_opportunities` - Volunteer postings
-- `volunteer_signups` - Volunteer applications
-
-## 🧪 Testing
 
 ```bash
-# Backend tests
-cd backend
-npm test
-
-# Frontend tests
-cd frontend
-npm test
+npm run dev --prefix frontend
 ```
 
-## 📈 Development Roadmap
+Open `http://localhost:3000`. Use a dedicated development Firebase project or reviewed emulator setup and synthetic accounts; do not use real user data for regression tests. Initial administrator access must be provisioned by an authorized operator for a verified Firebase UID. There is no email-address shortcut that should grant administrator access.
 
-### ✅ Phase 1 - MVP (Complete)
-- Database schema with PostGIS
-- 66 category system
-- React frontend with map interface
-- Express API with geospatial search
-- Sample data for IL/MO
+## Checks
 
-### 🚧 Phase 2 - Core Features (In Progress)
-- [ ] User authentication (Firebase)
-- [ ] Resource submission workflow
-- [ ] Admin approval dashboard
-- [ ] Favorites system
+```bash
+npm test --prefix backend -- --runInBand
+npm test --prefix frontend -- --run
+npm run build --prefix frontend
+```
 
-### 📋 Phase 3 - Enhanced Features (Planned)
-- [ ] LLM chatbot assistant
-- [ ] Multi-language support
-- [ ] Volunteer management
-- [ ] Sponsorship system
-- [ ] Analytics dashboard
+These commands do not deploy. Unit tests use mocks and do not establish production authorization, database-grant correctness, or cloud configuration. Database permission tests require a separate isolated staging database and explicit operator review; the SQL proposals have not been executed. Preserve test failures and inspect them before considering promotion.
 
-### 🌍 Phase 4 - Expansion (Future)
-- [ ] National expansion (all 50 states)
-- [ ] Mobile apps (iOS/Android)
-- [ ] SMS interface
-- [ ] VAPI voice assistant
-- [ ] API for partners
+## Repository map
 
-## 🤝 Contributing
+| Path | Purpose |
+| --- | --- |
+| `frontend/src/App.jsx`, `components/`, `contexts/` | React interface, search, maps, sign-in, user and administrator workflows |
+| `backend/src/server.js` | Express routes and Firebase Function export |
+| `backend/src/scripts/`, `scripts/` | Maintenance and data tools; review individually before running |
+| `database/schema.sql` | Historical schema baseline |
+| `database/proposals/` | Unexecuted application-role templates and review queries |
+| `firebase.json`, `.firebaserc` | Current Hosting/Functions configuration |
+| `backend/Dockerfile` | Separate container path requiring staging review |
 
-1. Review [PRD.md](./PRD.md) for product vision
-2. Check [CHANGELOG.md](./CHANGELOG.md) for current status
-3. Create feature branch
-4. Submit pull request
+## Decisions and roadmap
 
-## 📝 License
+- [ROADMAP.md](ROADMAP.md): CURRENT, NEXT, and PLANNED work and acceptance gates.
+- [ARCHITECTURE_RECOMMENDATION.md](ARCHITECTURE_RECOMMENDATION.md): retain current routing while evaluating a staged Cloud Run migration.
+- [Database application-role runbook](docs/DATABASE_APP_ROLE_RUNBOOK.md): current privileges, stricter target, secrets, tests, promotion, and rollback.
+- [211 / Open Referral proposal](docs/OPEN_REFERRAL_211_DESIGN.md): isolated raw imports, provenance, verification, and HSDS mapping.
+- [NDP 211 V2 skeleton](docs/NDP_211_V2_SKELETON.md): disabled adapter, synthetic contract tests, and remaining live-integration requirements.
+- [PRD.md](PRD.md) and [CHANGELOG.md](CHANGELOG.md): historical product context; unfinished items and old deployment claims are not the current release status.
 
-[License details to be added]
-
-## 📧 Contact
-
-[Contact information to be added]
-
----
-
-**Built with ❤️ to help those who need it most.**
+Before any later commit, review the diff and the credential-rotation inventory. Source cleanup does not remove credentials from history or revoke them. The owner performs credential rotation; production release requires a separate reviewed staging and promotion decision.
