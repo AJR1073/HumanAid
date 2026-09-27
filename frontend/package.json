@@ -32,5 +32,6 @@
     "tailwindcss": "^3.3.6",
     "vite": "^5.0.8",
     "vitest": "^4.0.16"
-  }
+  },
+  "type": "module"
 }

@@ -64,7 +64,7 @@ def connect_db():
         port=os.getenv('DB_PORT', '5432'),
         database=os.getenv('DB_NAME', 'humanaid'),
         user=os.getenv('DB_USER', 'postgres'),
-        password=os.getenv('DB_PASSWORD', 'humanaid2025')
+        password=os.environ["DB_PASSWORD"]
     )
 
 def is_commercial_business(name, website=''):

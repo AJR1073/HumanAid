@@ -8,26 +8,54 @@ import {
   createUserWithEmailAndPassword,
   signOut,
   onAuthStateChanged,
-  updateProfile
+  updateProfile,
+  sendEmailVerification
 } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
 
-const firebaseConfig = {
-  apiKey: "AIzaSyCc4opG01hQZq8X-YY08sDqB-crIVvGk3s",
-  authDomain: "gocasino-1ecc9.firebaseapp.com",
-  databaseURL: "https://gocasino-1ecc9-default-rtdb.firebaseio.com",
-  projectId: "gocasino-1ecc9",
-  storageBucket: "gocasino-1ecc9.firebasestorage.app",
-  messagingSenderId: "154176578711",
-  appId: "1:154176578711:web:29abcde1ab582abbcef5d2",
-  measurementId: "G-1BQEXLR40N"
+// Browser configuration is public, but must be chosen explicitly for this environment.
+// Never fall back to another Firebase project when configuration is incomplete.
+const clientFields = {
+  apiKey: ['VITE_FIREBASE_API_KEY', import.meta.env.VITE_FIREBASE_API_KEY, true],
+  authDomain: ['VITE_FIREBASE_AUTH_DOMAIN', import.meta.env.VITE_FIREBASE_AUTH_DOMAIN, true],
+  projectId: ['VITE_FIREBASE_PROJECT_ID', import.meta.env.VITE_FIREBASE_PROJECT_ID, true],
+  appId: ['VITE_FIREBASE_APP_ID', import.meta.env.VITE_FIREBASE_APP_ID, true],
+  storageBucket: ['VITE_FIREBASE_STORAGE_BUCKET', import.meta.env.VITE_FIREBASE_STORAGE_BUCKET],
+  messagingSenderId: ['VITE_FIREBASE_MESSAGING_SENDER_ID', import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID],
+  databaseURL: ['VITE_FIREBASE_DATABASE_URL', import.meta.env.VITE_FIREBASE_DATABASE_URL],
+  measurementId: ['VITE_FIREBASE_MEASUREMENT_ID', import.meta.env.VITE_FIREBASE_MEASUREMENT_ID]
 };
+const placeholder = /^(?:your[_-].*|replace[_-]?me|change[_-]?me|todo|undefined|null|<[^>]+>|\$\{[^}]+\})$/i;
+const firebaseConfig = {};
+for (const [field, [variable, raw, required]] of Object.entries(clientFields)) {
+  const value = raw == null ? '' : typeof raw === 'string' ? raw.trim() : null;
+  if (value === null || (value && (placeholder.test(value) || /\s|[\u0000-\u001f\u007f]/.test(value)))) {
+    throw new Error(`Invalid Firebase client configuration: ${variable}. Use the value for your selected project.`);
+  }
+  if (!value) {
+    if (required) {
+      throw new Error(`Missing Firebase client configuration: ${variable}. Set all required VITE_FIREBASE_* variables.`);
+    }
+    continue;
+  }
+  firebaseConfig[field] = value;
+}
 
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 export const db = getFirestore(app);
 export const googleProvider = new GoogleAuthProvider();
+
+export const requestEmailVerification = async () => {
+  if (!auth.currentUser) return { error: 'Sign in first.' };
+  try {
+    await sendEmailVerification(auth.currentUser);
+    return { error: null };
+  } catch {
+    return { error: 'Could not send the verification email. Please try again later.' };
+  }
+};
 
 // Auth helper functions
 export const signInWithGoogle = async () => {

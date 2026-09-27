@@ -15,7 +15,7 @@ def connect_db():
         port='5432',
         database='humanaid',
         user='postgres',
-        password='humanaid2025'
+        password=os.environ["DB_PASSWORD"]
     )
 
 # REMOVALS - High confidence commercial businesses

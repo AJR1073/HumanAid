@@ -31,11 +31,6 @@ source backend/.env.production
 PGPASSWORD="$DB_PASSWORD" psql -h $DB_HOST -U $DB_USER -d $DB_NAME
 ```
 
-### Option 3: Direct psql command
-```bash
-PGPASSWORD='549_Jb>#Rk;_4n+1' psql -h 34.132.37.162 -U postgres -d humanaid
-```
-
 ## Running SQL Scripts on Production
 
 ```bash
@@ -99,12 +94,11 @@ The backend service running on Cloud Run uses environment variables set in the d
 - JWT secrets
 - CORS origins
 
-To update Cloud Run environment variables:
-```bash
-gcloud run services update humanaid-api \
-  --update-env-vars DB_PASSWORD=new_password \
-  --region us-central1
-```
+Store or update the database password in Google Secret Manager. Reference the
+secret by name and a pinned version when binding it to the Firebase Function or
+to Cloud Run's runtime `DB_PASSWORD` variable. Apply bindings only through a
+separately approved release. Never put plaintext passwords in command-line
+arguments or ordinary deployment environment-variable assignments.
 
 ## Security Best Practices
 

@@ -32,10 +32,11 @@ python google_places_collector.py \
 
 ### 4. Import to Database
 
+Set `DB_PASSWORD` through your secure local environment before running imports. Never pass a database password on the command line.
+
 ```bash
 python import_csv.py \
-  --file ../data/rockford_resources.csv \
-  --db-password humanaid2025
+  --file ../data/rockford_resources.csv
 ```
 
 ---
