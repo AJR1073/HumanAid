@@ -91,15 +91,6 @@ function App() {
     fetchResources();
   }, [selectedCategory, currentLocation]);
 
-  // Debug: Log when resources change
-  useEffect(() => {
-    console.log('[HumanAid] Resources state updated:', {
-      total: resources.length,
-      withCoords: resources.filter(r => r.latitude && r.longitude).length,
-      sample: resources.slice(0, 2).map(r => ({ id: r.id, name: r.name, lat: r.latitude, lon: r.longitude }))
-    });
-  }, [resources]);
-
   const fetchStats = async () => {
     try {
       const response = await fetch(`${API_BASE}/resources?mode=${mode}`);

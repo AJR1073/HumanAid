@@ -1,70 +1,60 @@
 const request = require('supertest');
-const express = require('express');
-const { Pool } = require('pg');
+const { app, db, verifyIdToken } = require('../../test/helpers');
 
-// Mock PG Pool
-jest.mock('pg', () => {
-    const mPool = {
-        query: jest.fn(),
-    };
-    return { Pool: jest.fn(() => mPool) };
-});
+const user = (call) => call.set('Authorization', 'Bearer user-a-token');
 
-// Import server (we need to export app for testing, or mock it fully)
-// Since server.js might not export app easily without refactoring, 
-// we'll mock the app structure or import it if possible.
-// For now, let's assume we can test the logic by mocking the route behavior 
-// or by refactoring server.js to export app. 
-// Given current access, let's write a targeted test that simulates the query construction logic
-// if we can't easily import the app. 
+describe('Favorites and verified profile ownership', () => {
+  test('fetches favorites for the token UID without a browser UID', async () => {
+    db.mockResolvedValueOnce({ rows: [{ id: 11 }] }).mockResolvedValueOnce({ rows: [{ resource_id: 5 }] });
+    const response = await user(request(app).get('/api/favorites'));
+    expect(response.status).toBe(200);
+    expect(response.body.favorites).toEqual([5]);
+    expect(db.mock.calls[0][1]).toEqual(['user-a']);
+    expect(db.mock.calls[1][1]).toEqual([11]);
+  });
 
-// Actually, looking at package.json, main is src/server.js.
-// If server.js starts the server on require, that's annoying for tests.
-// Let's rely on standard jest patterns.
+  test('toggles only the token owner’s favorite', async () => {
+    db.mockResolvedValueOnce({ rows: [{ id: 11 }] }).mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rowCount: 1 });
+    const response = await user(request(app).post('/api/favorites')).send({ resourceId: 5 });
+    expect(response.status).toBe(200);
+    expect(response.body.status).toBe('added');
+    expect(db).toHaveBeenCalledWith(expect.stringContaining('INSERT INTO user_favorites'), [11, 5]);
+  });
 
-describe('GET /api/resources filtering', () => {
-    let app;
-    let pool;
+  test('new favorite user uses verified email', async () => {
+    db.mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: [{ id: 11 }] }).mockResolvedValueOnce({ rows: [] });
+    await user(request(app).post('/api/favorites')).send({ resourceId: 5 }).expect(200);
+    expect(db).toHaveBeenCalledWith(expect.stringContaining('INSERT INTO users'), ['user-a', 'a@example.test']);
+  });
 
-    beforeEach(() => {
-        jest.clearAllMocks();
-        pool = new (require('pg').Pool)();
-    });
+  test.each([
+    ['get', '/api/favorites?uid=user-b', undefined],
+    ['post', '/api/favorites', { uid: 'user-b', resourceId: 5 }],
+    ['post', '/api/users/sync', { uid: 'user-b', displayName: 'Changed' }],
+    ['post', '/api/users/sync', { email: 'b@example.test', displayName: 'Changed' }],
+    ['post', '/api/users/sync', { isAdmin: true }],
+    ['post', '/api/users/sync', { is_admin: true }]
+  ])('rejects cross-user or privilege payload %s %s', async (method, path, body) => {
+    const call = user(request(app)[method](path));
+    const response = body ? await call.send(body) : await call;
+    expect(response.status).toBe(403);
+    expect(db).not.toHaveBeenCalled();
+  });
 
-    test('should construct correct query when ids parameter is provided', async () => {
-        // This is a partial test since we can't easily import app without side effects
-        // In a real scenario, we'd refactor server.js to export { app }.
-        // For this context, I will create a dummy express app with the SAME logic 
-        // to verify the SQL construction, which is the critical part.
-
-        const mockApp = express();
-        mockApp.get('/test-resources', async (req, res) => {
-            const { ids } = req.query;
-            const params = [];
-            let query = 'SELECT * FROM resources WHERE 1=1';
-            let paramCount = 1;
-
-            if (ids) {
-                const idList = ids.split(',').map(id => parseInt(id.trim())).filter(id => !isNaN(id));
-                if (idList.length > 0) {
-                    query += ` AND r.id = ANY($${paramCount})`;
-                    params.push(idList);
-                    paramCount++;
-                }
-            }
-
-            // Simulate DB call
-            await pool.query(query, params);
-            res.json({ success: true });
-        });
-
-        await request(mockApp)
-            .get('/test-resources?ids=1,2,abc,3')
-            .expect(200);
-
-        expect(pool.query).toHaveBeenCalledWith(
-            expect.stringContaining('AND r.id = ANY($1)'),
-            [[1, 2, 3]]
-        );
-    });
+  test('syncs UID and email from token and cannot grant admin status', async () => {
+    db.mockResolvedValueOnce({ rows: [{ is_admin: false }] });
+    const response = await user(request(app).post('/api/users/sync')).send({ displayName: 'Updated profile', photoURL: 'https://example.test/avatar.png' });
+    expect(response.status).toBe(200);
+    expect(response.body.isAdmin).toBe(false);
+    const [sql, params] = db.mock.calls[0];
+    expect(params).toEqual(['user-a', 'a@example.test', 'Updated profile', 'https://example.test/avatar.png']);
+    expect(sql).toContain('NOW(), FALSE');
+    expect(sql.split('DO UPDATE SET')[1]).not.toMatch(/is_admin\s*=/);
+  });
+  test('does not advertise administrator access for an unverified email', async () => {
+    verifyIdToken.mockResolvedValueOnce({ uid: 'admin-uid', email: 'admin@example.test', email_verified: false });
+    db.mockResolvedValueOnce({ rows: [{ is_admin: true }] });
+    const response = await user(request(app).post('/api/users/sync')).send({ displayName: 'Admin' }).expect(200);
+    expect(response.body.isAdmin).toBe(false);
+  });
 });

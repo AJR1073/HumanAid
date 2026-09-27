@@ -1,7 +1,8 @@
+import { apiFetch, API_BASE } from '../api';
 import { useState, useEffect } from 'react';
 import { X, Search, Globe, Save, Loader } from 'lucide-react';
 
-const API_BASE = import.meta.env.VITE_API_URL || '/api';
+
 
 const AdminResourceModal = ({ isOpen, onClose, resource, categories, onSave }) => {
     const [formData, setFormData] = useState({
@@ -71,7 +72,7 @@ const AdminResourceModal = ({ isOpen, onClose, resource, categories, onSave }) =
 
         setScanning(true);
         try {
-            const res = await fetch(`${API_BASE}/scan-url`, {
+            const res = await apiFetch(`${API_BASE}/scan-url`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ url: formData.website })

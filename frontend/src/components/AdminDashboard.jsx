@@ -1,10 +1,11 @@
+import { apiFetch, API_BASE } from '../api';
 import { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { Check, X, Shield, Clock, MapPin, Phone, Globe, Mail, BarChart2 } from 'lucide-react';
 import AdminResourceModal from './AdminResourceModal';
 import AnalyticsDashboard from './AnalyticsDashboard';
 
-const API_BASE = import.meta.env.VITE_API_URL || '/api';
+
 
 const AdminDashboard = () => {
     const { user, isAdmin } = useAuth();
@@ -26,7 +27,7 @@ const AdminDashboard = () => {
 
     const fetchCategories = async () => {
         try {
-            const res = await fetch(`${API_BASE}/categories?include_empty=true&all_levels=true`);
+            const res = await apiFetch(`${API_BASE}/categories?include_empty=true&all_levels=true`);
             const data = await res.json();
             setCategories(data.categories || []);
         } catch (e) {
@@ -37,7 +38,8 @@ const AdminDashboard = () => {
     const fetchSubmissions = async () => {
         setLoading(true);
         try {
-            const res = await fetch(`${API_BASE}/submissions/pending`);
+            const res = await apiFetch(`${API_BASE}/submissions/pending`);
+            if (!res.ok) throw new Error('Unable to load admin data.');
             const data = await res.json();
             setSubmissions(data);
         } catch (error) {
@@ -50,7 +52,7 @@ const AdminDashboard = () => {
     const fetchResources = async () => {
         setLoading(true);
         try {
-            const res = await fetch(`${API_BASE}/admin/resources?page=${currentPage}&limit=20&search=${encodeURIComponent(resourceSearch)}&missing_zip=${missingZipOnly}`);
+            const res = await apiFetch(`${API_BASE}/admin/resources?page=${currentPage}&limit=20&search=${encodeURIComponent(resourceSearch)}&missing_zip=${missingZipOnly}`);
             const data = await res.json();
             setResources(data.resources || []);
             setTotalPages(data.totalPages || 1);
@@ -64,7 +66,8 @@ const AdminDashboard = () => {
     const fetchAdmins = async () => {
         setLoading(true);
         try {
-            const res = await fetch(`${API_BASE}/admin/list`);
+            const res = await apiFetch(`${API_BASE}/admin/list`);
+            if (!res.ok) throw new Error('Unable to load admin data.');
             const data = await res.json();
             setAdmins(data.admins || []);
         } catch (error) {
@@ -89,7 +92,7 @@ const AdminDashboard = () => {
     }, [resourceSearch, missingZipOnly]);
 
     const handleSaveResource = async (id, updatedData) => {
-        const res = await fetch(`${API_BASE}/admin/resources/${id}`, {
+        const res = await apiFetch(`${API_BASE}/admin/resources/${id}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(updatedData)
@@ -104,18 +107,16 @@ const AdminDashboard = () => {
         try {
             if (!confirm(`Are you sure you want to ${action} this submission?`)) return;
 
-            const res = await fetch(`${API_BASE}/submissions/${id}`, {
+            const res = await apiFetch(`${API_BASE}/submissions/${id}`, {
                 method: 'PATCH',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    action: action,
-                    reviewedBy: user.uid
+                    action
                 })
             });
 
-            if (res.ok) {
-                setSubmissions(submissions.filter(s => s.id !== id));
-            }
+            if (!res.ok) throw new Error('Submission update failed');
+            setSubmissions(submissions.filter(s => s.id !== id));
         } catch (error) {
             console.error(`Error ${action} submission:`, error);
             alert(`Failed to ${action} submission`);
@@ -127,21 +128,21 @@ const AdminDashboard = () => {
         if (!adminEmail) return;
 
         try {
-            const res = await fetch(`${API_BASE}/admin/promote`, {
+            const res = await apiFetch(`${API_BASE}/admin/promote`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ email: adminEmail })
             });
 
             if (res.ok) {
-                setPromoteStatus({ type: 'success', msg: `Users with email ${adminEmail} are now Admins.` });
+                setPromoteStatus({ type: 'success', msg: `The verified account for ${adminEmail} is now an admin.` });
                 setAdminEmail('');
                 fetchAdmins();
             } else {
                 throw new Error('Failed');
             }
         } catch (error) {
-            setPromoteStatus({ type: 'error', msg: 'Failed to promote user. Ensure email exists.' });
+            setPromoteStatus({ type: 'error', msg: 'Could not promote this account. The user must sign in and verify their email first.' });
         }
     };
 
@@ -357,7 +358,7 @@ const AdminDashboard = () => {
                                             onClick={async () => {
                                                 if (!confirm(`Are you sure you want to remove admin access from ${admin.email}?`)) return;
                                                 try {
-                                                    const res = await fetch(`${API_BASE}/admin/demote`, {
+                                                    const res = await apiFetch(`${API_BASE}/admin/demote`, {
                                                         method: 'POST',
                                                         headers: { 'Content-Type': 'application/json' },
                                                         body: JSON.stringify({ email: admin.email })

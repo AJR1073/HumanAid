@@ -1,3 +1,4 @@
+import { apiFetch, API_BASE } from '../api';
 
 import React, { useState, useEffect } from 'react';
 import {
@@ -6,7 +7,7 @@ import {
 } from 'recharts';
 import './AnalyticsDashboard.css';
 
-const API_BASE = import.meta.env.VITE_API_URL || '/api';
+
 
 const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884d8', '#82ca9d'];
 
@@ -29,8 +30,8 @@ const AnalyticsDashboard = () => {
         const fetchData = async () => {
             try {
                 const [statsRes, catsRes] = await Promise.all([
-                    fetch(`${API_BASE}/stats`),
-                    fetch(`${API_BASE}/categories?include_empty=true&all_levels=true`)
+                    apiFetch(`${API_BASE}/stats`),
+                    apiFetch(`${API_BASE}/categories?include_empty=true&all_levels=true`)
                 ]);
 
                 const statsData = await statsRes.json();

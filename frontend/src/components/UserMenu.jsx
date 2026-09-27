@@ -3,8 +3,10 @@ import { useState, useRef, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 
 const UserMenu = ({ onLoginClick, onSubmitClick, onFavoritesClick, isFavoritesView, onAdminClick }) => {
-  const { user, logout, isAdmin } = useAuth();
+  const { user, logout, isAdmin, verifyEmail } = useAuth();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [verificationMessage, setVerificationMessage] = useState('');
+  const [sendingVerification, setSendingVerification] = useState(false);
   const menuRef = useRef(null);
 
   useEffect(() => {
@@ -23,6 +25,18 @@ const UserMenu = ({ onLoginClick, onSubmitClick, onFavoritesClick, isFavoritesVi
     setIsMenuOpen(false);
   };
 
+  const handleVerification = async () => {
+    setSendingVerification(true);
+    try {
+      const result = await verifyEmail();
+      setVerificationMessage(result.error || 'Verification email sent. After confirming, sign out and sign in again.');
+    } catch {
+      setVerificationMessage('Could not send the verification email. Please try again later.');
+    } finally {
+      setSendingVerification(false);
+    }
+  };
+
   if (!user) {
     return (
       <button className="login-btn" onClick={onLoginClick}>
@@ -39,6 +53,7 @@ const UserMenu = ({ onLoginClick, onSubmitClick, onFavoritesClick, isFavoritesVi
     <div className="user-menu-container" ref={menuRef}>
       <button
         className="user-avatar-btn"
+        aria-label="Open account menu"
         onClick={() => setIsMenuOpen(!isMenuOpen)}
       >
         {user.photoURL ? (
@@ -62,6 +77,12 @@ const UserMenu = ({ onLoginClick, onSubmitClick, onFavoritesClick, isFavoritesVi
           <div className="user-dropdown-divider" />
 
           <div className="user-dropdown-menu">
+            {!user.emailVerified && (
+              <button className="dropdown-item" disabled={sendingVerification} onClick={handleVerification}>
+                {sendingVerification ? 'Sending…' : 'Send verification email'}
+              </button>
+            )}
+            {verificationMessage && <p role="status">{verificationMessage}</p>}
             <button className="dropdown-item" onClick={() => { setIsMenuOpen(false); if (onFavoritesClick) onFavoritesClick(); }}>
               {isFavoritesView ? (
                 <>
