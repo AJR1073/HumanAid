@@ -1,10 +1,11 @@
 const express = require('express');
 const cors = require('cors');
 const { Pool } = require('pg');
+const geoip = require('geoip-lite');
 const { databaseConfig, corsOptions, readInteger, assertFirebaseAuthEnvironment } = require('./security/config');
 const { createAuthMiddleware, requireOwnIdentity, getFirebaseUser } = require('./security/auth');
 const { createRateLimiter } = require('./security/rate-limit');
-const { validate, validateId, requireCoordinatePair, schemas } = require('./security/validation');
+const { validate, validateId, requireCoordinatePair, readValue, schemas, integer } = require('./security/validation');
 const { fetchPublicHtml, ScanUrlError } = require('./services/safe-url-fetch');
 const { publicResource } = require('./security/public-resource');
 
@@ -16,10 +17,11 @@ const app = express();
 const port = process.env.PORT || 4000;
 assertFirebaseAuthEnvironment();
 const pool = new Pool(databaseConfig());
-const { requireAuthenticatedUser, requireAdmin } = createAuthMiddleware({ pool });
+const { verifyFirebaseToken, requireAuthenticatedUser, requireAdmin } = createAuthMiddleware({ pool });
 const adminOnly = [requireAuthenticatedUser, requireAdmin];
 const mutationLimit = createRateLimiter({ limit: 30, windowMs: 10 * 60 * 1000 });
 const scanLimit = createRateLimiter({ limit: 10, windowMs: 5 * 60 * 1000 });
+const trackingLimit = createRateLimiter({ limit: 120, windowMs: 60 * 1000 });
 
 app.disable('x-powered-by');
 app.set('trust proxy', readInteger(process.env.TRUST_PROXY_HOPS, 0, 0, 3, 'TRUST_PROXY_HOPS'));
@@ -1026,6 +1028,18 @@ app.get('/api/admin/list', async (req, res) => {
   }
 });
 
+// Track resource view
+app.post('/api/resources/:id/view', trackingLimit, async (req, res) => {
+  try {
+    const { id } = req.params;
+    await pool.query("UPDATE resources SET view_count = view_count + 1 WHERE id = $1 AND is_active = true AND approval_status = 'approved'", [id]);
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error tracking view:');
+    res.status(500).json({ error: 'Failed to track view' });
+  }
+});
+
 // Get single resource by ID (Public)
 app.get('/api/resources/:id', async (req, res) => {
   try {
@@ -1049,6 +1063,180 @@ app.get('/api/resources/:id', async (req, res) => {
     res.status(500).json({ error: 'Failed to fetch resource' });
   }
 });
+
+// --- Analytics Endpoints ---
+
+// Track view/activity
+app.post('/api/analytics/track', verifyFirebaseToken, trackingLimit, requireOwnIdentity(), validate(schemas.analytics), (req, res, next) => {
+  if (req.body.action_type === 'view_admin_dashboard') return requireAdmin(req, res, next);
+  return next();
+}, async (req, res) => {
+  let client;
+  let transactionOpen = false;
+  try {
+    const { action_type, details = {}, resource_id } = req.body;
+    let resourceId = resource_id || null;
+    if (details && details.resource_id !== undefined) {
+      let legacyResourceId;
+      try { legacyResourceId = readValue(details.resource_id, integer(2147483647, true)); }
+      catch { return res.status(400).json({ error: 'Invalid resource_id' }); }
+      if (resourceId && resourceId !== legacyResourceId) {
+        return res.status(400).json({ error: 'Conflicting resource identifiers' });
+      }
+      resourceId = legacyResourceId;
+    }
+    if (action_type === 'view_resource' && !resourceId) {
+      return res.status(400).json({ error: 'resource_id is required for resource views' });
+    }
+    const ip = req.ip || req.socket.remoteAddress;
+    const geo = geoip.lookup(ip);
+    const location = geo ? `${geo.city}, ${geo.region}` : 'Unknown';
+    let dbUserId = null;
+    client = await pool.connect();
+    await client.query('BEGIN');
+    transactionOpen = true;
+    if (req.auth) {
+      const userRes = await client.query('SELECT id FROM users WHERE firebase_uid = $1', [req.auth.uid]);
+      dbUserId = userRes.rows[0]?.id || null;
+    }
+    const finalDetails = { ...(details || {}), location };
+    delete finalDetails.user_id;
+    delete finalDetails.uid;
+    delete finalDetails.email;
+    delete finalDetails.debug_uid;
+    delete finalDetails.debug_email;
+    await client.query(
+      `INSERT INTO activity_log (user_id, resource_id, action_type, details, ip_address, created_at)
+       VALUES ($1, $2, $3, $4, $5, NOW())`,
+      [dbUserId, resourceId, action_type, finalDetails, ip]
+    );
+    if (action_type === 'view_resource') {
+      await client.query('UPDATE resources SET view_count = view_count + 1 WHERE id = $1 AND is_active = true AND approval_status = $2', [resourceId, 'approved']);
+    }
+
+    await client.query('COMMIT');
+    transactionOpen = false;
+    // A retry after COMMIT but before response delivery can duplicate an event;
+    // add an idempotency key in a future API/schema change if that guarantee is needed.
+    res.json({ success: true });
+  } catch (error) {
+    if (client && transactionOpen) {
+      try { await client.query('ROLLBACK'); } catch { /* Preserve the generic external error. */ }
+    }
+    console.error('Tracking error:');
+    res.status(500).json({ error: 'Failed to track activity' });
+  } finally {
+    client?.release();
+  }
+});
+
+// Detailed Admin Analytics
+app.get('/api/admin/analytics/views', async (req, res) => {
+  try {
+    // Time range: Last 30 days
+    const viewsOverTime = await pool.query(`
+            SELECT DATE(created_at) as date, COUNT(*) as count
+            FROM activity_log
+            WHERE action_type = 'view_resource'
+              AND created_at > NOW() - INTERVAL '30 days'
+            GROUP BY DATE(created_at)
+            ORDER BY DATE(created_at) ASC
+        `);
+
+    // Top viewed resources
+    const topResources = await pool.query(`
+            SELECT r.name, COUNT(*) as views
+            FROM activity_log a
+            JOIN resources r ON a.resource_id = r.id
+            WHERE a.action_type = 'view_resource'
+            GROUP BY r.id, r.name
+            ORDER BY views DESC
+            LIMIT 10
+        `);
+
+    // Device/Platform breakdown (Basic User Agent grouping)
+    const userAgents = await pool.query(`
+            SELECT details->>'user_agent' as ua
+            FROM activity_log
+            WHERE action_type = 'view_resource'
+              AND created_at > NOW() - INTERVAL '30 days'
+        `);
+
+    // Top Locations
+    const locationRes = await pool.query(`
+            SELECT details->>'location' as location, COUNT(*) as views
+            FROM activity_log
+            WHERE action_type = 'view_resource'
+              AND details->>'location' IS NOT NULL
+              AND details->>'location' != 'Unknown'
+            GROUP BY location
+            ORDER BY views DESC
+            LIMIT 10
+        `);
+
+    // Simple aggregation in JS to avoid complex SQL regex
+    const devices = { Mobile: 0, Desktop: 0, Tablet: 0, Other: 0 };
+    userAgents.rows.forEach(row => {
+      const ua = (row.ua || '').toLowerCase();
+      if (ua.includes('mobile')) devices.Mobile++;
+      else if (ua.includes('tablet') || ua.includes('ipad')) devices.Tablet++;
+      else if (ua.includes('mozilla') || ua.includes('chrome') || ua.includes('safari')) devices.Desktop++;
+      else devices.Other++;
+    });
+
+    const deviceData = Object.entries(devices).map(([name, value]) => ({ name, value })).filter(d => d.value > 0);
+
+    res.json({
+      viewsOverTime: viewsOverTime.rows,
+      topResources: topResources.rows,
+      deviceData,
+      locationData: locationRes.rows
+    });
+
+  } catch (error) {
+    console.error('Analytics error:');
+    res.status(500).json({ error: 'Failed to fetch analytics' });
+  }
+});
+
+// Real-time / Recent Activity
+app.get('/api/admin/analytics/realtime', async (req, res) => {
+  try {
+    // Active Users (last 15 mins)
+    const activeRes = await pool.query(`
+      SELECT COUNT(DISTINCT ip_address) as count
+      FROM activity_log
+      WHERE created_at > NOW() - INTERVAL '15 minutes'
+    `);
+
+    // Recent Activity Feed
+    const recentRes = await pool.query(`
+      SELECT
+        al.created_at,
+        al.action_type,
+        al.details,
+        r.name as resource_name,
+        r.id as resource_id,
+        u.email as user_email,
+        u.display_name as user_name
+      FROM activity_log al
+      LEFT JOIN resources r ON al.resource_id = r.id
+      LEFT JOIN users u ON al.user_id = u.id
+      ORDER BY al.created_at DESC
+      LIMIT 20
+    `);
+
+    res.json({
+      activeUsers: parseInt(activeRes.rows[0].count),
+      recentActivity: recentRes.rows
+    });
+  } catch (error) {
+    console.error('Realtime analytics error:');
+    res.status(500).json({ error: 'Failed to fetch realtime stats' });
+  }
+});
+
+// --- End Analytics Endpoints ---
 
 app.use((req, res) => res.status(404).json({ error: 'Not found' }));
 app.use((error, req, res, next) => {

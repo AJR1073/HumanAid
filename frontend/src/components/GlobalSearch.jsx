@@ -1,3 +1,4 @@
+import { apiFetch } from '../api';
 import React, { useState, useEffect, useRef } from 'react';
 import { Search, MapPin, X } from 'lucide-react';
 import './GlobalSearch.css';
@@ -46,6 +47,18 @@ const GlobalSearch = ({ onLocationSelect, onResourceSelect, currentMode = 'need_
     const handleSelect = (result) => {
         setQuery('');
         setIsOpen(false);
+
+        // Track analytics
+        apiFetch(`${API_BASE}/analytics/track`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                resource_id: result.id,
+                action_type: 'view_resource',
+                details: { source: 'global_search', query: query }
+            })
+        }).catch(err => console.error('Tracking failed', err));
+
         if (onResourceSelect) {
             onResourceSelect(result);
         }

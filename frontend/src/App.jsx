@@ -12,6 +12,7 @@ import RegistrationPromo from './components/RegistrationPromo';
 import AdminDashboard from './components/AdminDashboard';
 import StructuredData from './components/StructuredData';
 import GlobalSearch from './components/GlobalSearch';
+import { apiFetch } from './api';
 
 const API_BASE = import.meta.env.VITE_API_URL || '/api';
 const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN;
@@ -227,8 +228,18 @@ function App() {
   };
 
 
+  const trackView = async (id) => {
+    try {
+      await apiFetch(`${API_BASE}/resources/${id}/view`, { method: 'POST' });
+    } catch (err) {
+      console.error('Error tracking view:', err);
+    }
+  };
+
   // Handle selection from Global Search
   const handleGlobalSelect = (resource) => {
+    // GlobalSearch records the selection once through the analytics endpoint.
+
     if (resource.latitude && resource.longitude) {
       setViewState({
         ...viewState,
@@ -668,6 +679,7 @@ function App() {
                       latitude={resource.latitude}
                       onClick={(e) => {
                         e.originalEvent.stopPropagation();
+                        trackView(resource.id);
                         setSelectedResource(resource);
                       }}
                     >

@@ -3,6 +3,7 @@ const { app, db, poolQuery, verifyIdToken, fetchPublicHtml } = require('../../te
 const restricted = [
   ['get', '/api/admin/resources'], ['put', '/api/admin/resources/1'], ['post', '/api/admin/promote'],
   ['post', '/api/admin/demote'], ['get', '/api/admin/list'],
+  ['get', '/api/admin/analytics/views'], ['get', '/api/admin/analytics/realtime'],
   ['get', '/api/submissions'], ['get', '/api/submissions/pending'], ['patch', '/api/submissions/1']
 ];
 describe('Authentication and administrator boundary', () => {
